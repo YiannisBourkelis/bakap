@@ -19,7 +19,7 @@ if id "$USERNAME" &>/dev/null; then
 fi
 
 # Generate secure password
-PASSWORD=$(pwgen -s 16 1)
+PASSWORD=$(pwgen -s 64 1)
 
 echo "Creating user $USERNAME with password: $PASSWORD"
 
