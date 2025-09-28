@@ -18,19 +18,23 @@ Key features:
 ## Installation
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/bakap.git
+   git clone https://github.com/YiannisBourkelis/bakap.git
    ```
 2. Navigate to the project directory:
    ```
    cd bakap
    ```
-3. Run the setup script as root:
+3. Make the scripts executable:
+   ```
+   chmod +x setup.sh create_user.sh
+   ```
+4. Run the setup script as root:
    ```
    sudo ./setup.sh
    ```
    This installs required packages, configures SSH/SFTP with restrictions, sets up real-time monitoring, and prepares the server.
 
-4. Create backup users (run as root for each user):
+5. Create backup users (run as root for each user):
    ```
    sudo ./create_user.sh <username>
    ```

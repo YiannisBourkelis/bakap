@@ -24,10 +24,10 @@ PASSWORD=$(pwgen -s 16 1)
 echo "Creating user $USERNAME with password: $PASSWORD"
 
 # Create user
-useradd -m -g backupusers -s /usr/bin/rssh "$USERNAME"
+useradd -m -g backupusers -s /usr/bin/scponly "$USERNAME"
 
-# Set password
-echo "$USERNAME:$PASSWORD" | chpasswd
+# Set ownership for chroot (home must be root-owned)
+chown root:root "/home/$USERNAME"
 
 # Create directories
 mkdir -p "/home/$USERNAME/uploads"
