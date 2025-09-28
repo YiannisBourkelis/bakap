@@ -26,7 +26,7 @@ Key features:
    ```
 3. Make the scripts executable:
    ```
-   chmod +x setup.sh create_user.sh
+   chmod +x setup.sh create_user.sh delete_user.sh
    ```
 4. Run the setup script as root:
    ```
@@ -39,6 +39,12 @@ Key features:
    sudo ./create_user.sh <username>
    ```
    This creates a user with a secure random password, sets up directories, and applies restrictions.
+
+6. Delete backup users (run as root, with confirmation):
+   ```
+   sudo ./delete_user.sh <username>
+   ```
+   This removes the user and all their data (uploads and versions).
 
 ## Usage
 - **For Administrators**:
