@@ -14,18 +14,7 @@ apt update && apt upgrade -y
 
 # Install required packages
 echo "Installing required packages..."
-apt install -y openssh-server pwgen cron inotify-tools rsync build-essential wget
-
-# Install scponly from source
-echo "Installing scponly from source..."
-wget -q http://downloads.sourceforge.net/project/scponly/scponly/scponly-4.8/scponly-4.8.tgz
-tar -xzf scponly-4.8.tgz
-cd scponly-4.8
-./configure --enable-chrooted-binary --enable-winscp-compat --enable-scp-compat --prefix=/usr/local
-make
-make install
-cd ..
-rm -rf scponly-4.8*
+apt install -y openssh-server pwgen cron inotify-tools rsync fail2ban
 
 # Create backup users group
 echo "Creating backupusers group..."
@@ -62,6 +51,12 @@ echo "    X11Forwarding no" >> /etc/ssh/sshd_config
 # Restart SSH
 echo "Restarting SSH service..."
 systemctl restart ssh
+
+# Configure and start fail2ban for SSH protection
+echo "Configuring fail2ban for SSH protection..."
+systemctl enable --now fail2ban
+
+echo "Fail2ban is now monitoring SSH logins."
 
 # Create base directories
 echo "Creating base directories..."
