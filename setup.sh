@@ -14,7 +14,7 @@ apt update && apt upgrade -y
 
 # Install required packages
 echo "Installing required packages..."
-apt install -y openssh-server pwgen cron inotify-tools rsync fail2ban
+apt install -y openssh-server pwgen cron inotify-tools rsync
 
 # Create backup users group
 echo "Creating backupusers group..."
@@ -38,11 +38,9 @@ echo "    X11Forwarding no" >> /etc/ssh/sshd_config
 echo "Restarting SSH service..."
 systemctl restart ssh
 
-# Configure and start fail2ban for SSH protection
 echo "Configuring fail2ban for SSH protection..."
 systemctl enable --now fail2ban
 
-echo "Fail2ban is now monitoring SSH logins."
 
 # Create base directories
 echo "Creating base directories..."
@@ -84,12 +82,52 @@ EOF
 
 chmod +x /var/backups/scripts/monitor_backups.sh
 
-# Start the monitor as a background service
-echo "Starting real-time monitor service..."
-nohup /var/backups/scripts/monitor_backups.sh > /var/log/backup_monitor.log 2>&1 &
+# Create systemd unit for the monitor
+echo "Installing systemd unit for backup monitor..."
+cat > /etc/systemd/system/bakap-monitor.service <<'UNIT'
+[Unit]
+Description=Bakap real-time backup monitor
+After=network.target
 
-# Remove the old cron job
-(crontab -l 2>/dev/null | grep -v snapshot_backups.sh) | crontab -
+[Service]
+Type=simple
+ExecStart=/bin/bash /var/backups/scripts/monitor_backups.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now bakap-monitor.service
+
+# Tune inotify max_user_watches to support many users/directories
+echo "fs.inotify.max_user_watches=524288" > /etc/sysctl.d/99-bakap-inotify.conf
+sysctl --system >/dev/null 2>&1 || true
+
+# Add logrotate config for the monitor log
+cat > /etc/logrotate.d/bakap-monitor <<'LR'
+/var/log/backup_monitor.log {
+    weekly
+    rotate 12
+    compress
+    missingok
+    notifempty
+    create 640 root adm
+}
+LR
+
+# Create cleanup script to remove snapshots older than 30 days
+cat > /var/backups/scripts/cleanup_snapshots.sh <<'EOF'
+#!/bin/bash
+# Delete user snapshot directories older than 30 days
+find /home -mindepth 2 -maxdepth 3 -type d -path '*/versions/*' -mtime +30 -print0 | xargs -0 -r rm -rf
+EOF
+chmod +x /var/backups/scripts/cleanup_snapshots.sh
+
+# Install daily cron job for cleanup (run at 03:00)
+(crontab -l 2>/dev/null; echo "0 3 * * * /var/backups/scripts/cleanup_snapshots.sh") | crontab -
 
 echo "Setup complete!"
 echo "Use create_user.sh <username> to create backup users."
