@@ -25,9 +25,10 @@ echo "Creating user $USERNAME with password: $PASSWORD"
 # Create user
 useradd -m -g backupusers -s /usr/sbin/nologin "$USERNAME"
 
-# Set the user's password securely. Create a SHA-512 hash and apply it with usermod -p.
-# We pass the plain password via stdin to Python to avoid it showing in the process list.
-if command -v python3 >/dev/null 2>&1; then
+# Set the user's password securely. Prefer creating a SHA-512 hash and applying it with usermod -p.
+# Check that python3 exists and provides the 'crypt' module. If not, fall back to openssl,
+# and as a last resort use chpasswd (note: chpasswd will break if the password contains ':').
+if command -v python3 >/dev/null 2>&1 && python3 -c "import crypt" >/dev/null 2>&1; then
     HASH=$(python3 - <<'PY'
 import crypt,sys
 pw=sys.stdin.read().rstrip('\n')
@@ -36,7 +37,7 @@ PY
     ) <<<"$PASSWORD"
     usermod -p "$HASH" "$USERNAME"
 elif command -v openssl >/dev/null 2>&1; then
-    # Fallback: openssl passwd -6 <password> (may show in process args on some systems)
+    # Fallback: openssl passwd -6
     HASH=$(openssl passwd -6 "$PASSWORD")
     usermod -p "$HASH" "$USERNAME"
 else
