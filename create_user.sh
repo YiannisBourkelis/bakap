@@ -24,7 +24,10 @@ PASSWORD=$(pwgen -s 64 1)
 echo "Creating user $USERNAME with password: $PASSWORD"
 
 # Create user
-useradd -m -g backupusers -s /usr/local/bin/scponly "$USERNAME"
+useradd -m -g backupusers -s /usr/sbin/nologin "$USERNAME"
+
+# Set ownership for chroot (home must be root-owned)
+chown root:root "/home/$USERNAME"
 
 # Create directories
 mkdir -p "/home/$USERNAME/uploads"

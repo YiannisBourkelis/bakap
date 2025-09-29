@@ -13,7 +13,7 @@ Key features:
 - Debian Linux (tested on recent versions).
 - Root or sudo access for setup.
 - OpenSSH server (installed automatically by setup script).
-- Basic knowledge of SCP/SFTP for client uploads/downloads.
+- Basic knowledge of SFTP for client uploads/downloads.
 
 ## Installation
 1. Clone the repository:
@@ -52,8 +52,8 @@ Key features:
   - Monitor logs at `/var/log/backup_monitor.log` for snapshot activity.
 
 - **For Users**:
-  - Upload files: Use SCP or SFTP to connect and upload to your home directory (e.g., `scp file.txt username@server:~/`).
-  - Downloads: Access `/versions` via SFTP/SCP to browse and download snapshots (e.g., `scp -r username@server:/versions/20250929130000/* /local/path` for a specific point in time).
+  - Upload files: Use SFTP to connect and upload to your home directory (e.g., `sftp username@server`, then `put file.txt`).
+  - Downloads: Access `/versions` via SFTP to browse and download snapshots (e.g., `get /versions/20250929130000/* /local/path`).
   - Snapshots are created automatically on any file changes (add, modify, delete, move).
 
 ## Development

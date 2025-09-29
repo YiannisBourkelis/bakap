@@ -20,29 +20,17 @@ apt install -y openssh-server pwgen cron inotify-tools rsync fail2ban
 echo "Creating backupusers group..."
 groupadd -f backupusers
 
-# Configure scponly for restricted access (SCP/SFTP only) with chroot
-echo "Configuring scponly..."
-cat > /etc/scponly.conf <<EOF
-# scponly configuration file
-
-# Shell to use for chrooted users
-SHELL=/usr/bin/scponly
-
-# Directory where user home directories are located
-# This should match the chroot directory in /etc/ssh/sshd_config
-CHROOT_DIR=/home
-
-# Log facility for scponly
-LOG_FACILITY=LOG_USER
-EOF
-
 # Configure SSH
 echo "Configuring SSH..."
 sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
 sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+sed -i 's/#Subsystem sftp /Subsystem sftp /' /etc/ssh/sshd_config
+echo "Subsystem sftp internal-sftp" >> /etc/ssh/sshd_config
 
 # Add group for chroot
 echo "Match Group backupusers" >> /etc/ssh/sshd_config
+echo "    ChrootDirectory %h" >> /etc/ssh/sshd_config
+echo "    ForceCommand internal-sftp" >> /etc/ssh/sshd_config
 echo "    AllowTcpForwarding no" >> /etc/ssh/sshd_config
 echo "    X11Forwarding no" >> /etc/ssh/sshd_config
 
