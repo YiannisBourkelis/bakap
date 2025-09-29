@@ -30,12 +30,7 @@ echo "Deleting user $USERNAME..."
 # Kill any processes owned by the user
 pkill -u "$USERNAME" 2>/dev/null || true
 
-# Remove the user (without -r since home is owned by root)
-userdel "$USERNAME"
-
-# Manually remove the home directory and all data
-if [ -d "/home/$USERNAME" ]; then
-    rm -rf "/home/$USERNAME"
-fi
+# Remove the user and their home directory
+userdel -r "$USERNAME"
 
 echo "User $USERNAME and all their data have been deleted."

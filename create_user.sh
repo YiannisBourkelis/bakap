@@ -26,9 +26,6 @@ echo "Creating user $USERNAME with password: $PASSWORD"
 # Create user
 useradd -m -g backupusers -s /usr/local/bin/scponly "$USERNAME"
 
-# Set ownership for chroot (home must be root-owned)
-chown root:root "/home/$USERNAME"
-
 # Create directories
 mkdir -p "/home/$USERNAME/uploads"
 mkdir -p "/home/$USERNAME/versions"
