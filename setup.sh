@@ -44,7 +44,6 @@ sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd
 # Add group for chroot
 echo "Match Group backupusers" >> /etc/ssh/sshd_config
 echo "    ChrootDirectory %h" >> /etc/ssh/sshd_config
-echo "    ForceCommand /usr/local/bin/scponly" >> /etc/ssh/sshd_config
 echo "    AllowTcpForwarding no" >> /etc/ssh/sshd_config
 echo "    X11Forwarding no" >> /etc/ssh/sshd_config
 
