@@ -45,37 +45,59 @@ systemctl restart ssh
 echo "Creating base directories..."
 mkdir -p /var/backups/scripts
 
+echo "Creating monitor script..."
+done
 # Create monitor script for real-time incremental snapshots
 echo "Creating monitor script..."
 cat > /var/backups/scripts/monitor_backups.sh <<'EOF'
 #!/bin/bash
 # Real-time monitor script for user backups
-# Uses inotify and rsync to create incremental snapshots on changes
+# Watches /home and filters events under uploads/ so new users/uploads are picked up even after start
 
-inotifywait -m -r /home/*/uploads --format '%w %e' | while read dir event; do
-    if [[ $event =~ (CREATE|DELETE|MODIFY|MOVED_TO|MOVED_FROM) ]]; then
-        user=$(basename $(dirname "$dir"))
-        if [ -d "/home/$user/uploads" ]; then
-            timestamp=$(date +%Y%m%d%H%M%S)
-            snapshot_dir="/home/$user/versions/$timestamp"
-            mkdir -p "$snapshot_dir"
-            
-            # Find the latest previous snapshot
-            latest_snapshot=$(ls -d /home/$user/versions/* 2>/dev/null | sort | tail -1)
-            
-            if [ -n "$latest_snapshot" ]; then
-                # Incremental snapshot using rsync with link-dest
-                rsync -a --link-dest="$latest_snapshot" "/home/$user/uploads/" "$snapshot_dir/"
-            else
-                # First snapshot, full copy
-                rsync -a "/home/$user/uploads/" "$snapshot_dir/"
-            fi
-            
-            chown -R root:root "$snapshot_dir"
-            chmod -R 755 "$snapshot_dir"
-            echo "Incremental snapshot created for $user at $timestamp due to $event"
-        fi
+LOG=/var/log/backup_monitor.log
+mkdir -p "$(dirname "$LOG")"
+touch "$LOG"
+chown root:adm "$LOG" 2>/dev/null || true
+chmod 640 "$LOG" 2>/dev/null || true
+
+# Watch /home recursively and react to create/modify/delete/move events
+inotifywait -m -r /home -e create -e modify -e delete -e moved_to -e moved_from --format '%w%f %e' |
+while read path event; do
+    # Only handle events that happen inside an uploads directory
+    case "$path" in
+        */uploads|*/uploads/*)
+            ;;
+        *)
+            continue
+            ;;
+    esac
+
+    # Extract username from path: /home/<user>/uploads/...
+    user=$(echo "$path" | awk -F/ '{print $3}')
+    if [ -z "$user" ]; then
+        continue
     fi
+
+    if [ ! -d "/home/$user/uploads" ]; then
+        # uploads dir might have been removed
+        continue
+    fi
+
+    timestamp=$(date +%Y%m%d%H%M%S)
+    snapshot_dir="/home/$user/versions/$timestamp"
+    mkdir -p "$snapshot_dir"
+
+    latest_snapshot=$(ls -d /home/$user/versions/* 2>/dev/null | sort | tail -1)
+
+    if [ -n "$latest_snapshot" ]; then
+        rsync -a --link-dest="$latest_snapshot" "/home/$user/uploads/" "$snapshot_dir/"
+    else
+        rsync -a "/home/$user/uploads/" "$snapshot_dir/"
+    fi
+
+    chown -R root:root "$snapshot_dir" || true
+    chmod -R 755 "$snapshot_dir" || true
+    echo "$(date '+%F %T') Incremental snapshot created for $user at $timestamp due to $event" >> "$LOG"
 done
 EOF
 
