@@ -38,8 +38,7 @@ echo "    X11Forwarding no" >> /etc/ssh/sshd_config
 echo "Restarting SSH service..."
 systemctl restart ssh
 
-echo "Configuring fail2ban for SSH protection..."
-systemctl enable --now fail2ban
+# fail2ban installation/configuration is deferred; install it manually when ready
 
 
 # Create base directories
