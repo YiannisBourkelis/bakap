@@ -46,7 +46,6 @@ echo "Creating base directories..."
 mkdir -p /var/backups/scripts
 
 echo "Creating monitor script..."
-done
 # Create monitor script for real-time incremental snapshots
 echo "Creating monitor script..."
 cat > /var/backups/scripts/monitor_backups.sh <<'EOF'
