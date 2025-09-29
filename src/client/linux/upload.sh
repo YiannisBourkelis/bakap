@@ -11,19 +11,20 @@ set -euo pipefail
 DEFAULT_SERVER="202.61.225.34"
 
 usage() {
-    cat <<EOF
-Usage: $0 <local-path> <username> <password> [dest-path]
+        cat <<EOF
+Usage: $0 <local-path> <username> <password> [dest-path] [expected-host-fingerprint]
 
 This script uploads a file or directory to the bakap server ($DEFAULT_SERVER).
 It prefers lftp (shows progress). If lftp is not installed it falls back to sshpass+sftp.
 
 Examples:
-  $0 /path/to/file.sql.gz test2 'P@ssw0rd' uploads/
-  $0 /path/to/folder test2 'P@ssw0rd' uploads/backups/
+    $0 /path/to/file.sql.gz test2 'P@ssw0rd' uploads/
+    $0 /path/to/folder test2 'P@ssw0rd' uploads/backups/ SHA256:abcdef...
 
 Notes:
 - The password will appear in the process list while the command runs when using sshpass. Prefer SSH keys.
 - The destination path is relative to the user's chroot (most installs use uploads/).
+- If provided, expected-host-fingerprint will be compared to the server's SSH key fingerprint before adding it to your known_hosts.
 EOF
 }
 
@@ -36,6 +37,7 @@ LOCAL_PATH=$1
 USERNAME=$2
 PASSWORD=$3
 DEST_PATH=${4:-uploads/}
+EXPECTED_FP=${5:-}
 
 if [ ! -e "$LOCAL_PATH" ]; then
     echo "Local path does not exist: $LOCAL_PATH" >&2
@@ -43,6 +45,62 @@ if [ ! -e "$LOCAL_PATH" ]; then
 fi
 
 echo "Uploading '$LOCAL_PATH' as user '$USERNAME' to $DEFAULT_SERVER:$DEST_PATH"
+
+# Ensure ~/.ssh exists for current user and known_hosts is present
+SSH_DIR="$HOME/.ssh"
+mkdir -p "$SSH_DIR"
+chmod 700 "$SSH_DIR" || true
+KNOWN_HOSTS="$SSH_DIR/known_hosts"
+touch "$KNOWN_HOSTS" || true
+chmod 600 "$KNOWN_HOSTS" || true
+
+# Helper: ensure server host key is in known_hosts. If EXPECTED_FP is provided, compare.
+ensure_host_key() {
+    # If host already in known_hosts, nothing to do
+    if ssh-keygen -F "$DEFAULT_SERVER" -f "$KNOWN_HOSTS" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Fetch host keys
+    echo "Fetching host keys for $DEFAULT_SERVER..."
+    tmp=$(mktemp)
+    ssh-keyscan -t rsa,ecdsa,ed25519 "$DEFAULT_SERVER" > "$tmp" 2>/dev/null || true
+    if [ ! -s "$tmp" ]; then
+        echo "Failed to fetch host keys for $DEFAULT_SERVER" >&2
+        rm -f "$tmp"
+        return 1
+    fi
+
+    if [ -n "$EXPECTED_FP" ]; then
+        # compute fingerprint of fetched keys and compare
+        match=0
+        while read -r line; do
+            # write line to a temp key file for fingerprinting
+            keyfile=$(mktemp)
+            echo "$line" > "$keyfile"
+            fp=$(ssh-keygen -lf "$keyfile" 2>/dev/null | awk '{print $2}') || fp=""
+            rm -f "$keyfile"
+            if [ "$fp" = "$EXPECTED_FP" ]; then
+                match=1
+                break
+            fi
+        done < "$tmp"
+        if [ $match -ne 1 ]; then
+            echo "Server host fingerprint did not match expected fingerprint: $EXPECTED_FP" >&2
+            rm -f "$tmp"
+            return 2
+        fi
+    fi
+
+    # Append fetched keys to known_hosts
+    cat "$tmp" >> "$KNOWN_HOSTS"
+    rm -f "$tmp"
+    echo "Added $DEFAULT_SERVER host key to $KNOWN_HOSTS"
+    return 0
+}
+
+# Try to ensure host key; non-fatal for now
+ensure_host_key || true
 
 # Prefer lftp if available (gives a nice progress bar and supports sftp protocol)
 if command -v lftp >/dev/null 2>&1; then
