@@ -59,8 +59,8 @@ touch "$LOG"
 chown root:adm "$LOG" 2>/dev/null || true
 chmod 640 "$LOG" 2>/dev/null || true
 
-# Watch /home recursively and react to create/modify/delete/move events
-inotifywait -m -r /home -e create -e modify -e delete -e moved_to -e moved_from --format '%w%f %e' |
+# Watch /home recursively and react to close_write/moved_to/create events
+inotifywait -m -r /home -e close_write -e moved_to -e create --format '%w%f %e' |
 while read path event; do
     # Only handle events that happen inside an uploads directory
     case "$path" in
@@ -82,6 +82,30 @@ while read path event; do
         continue
     fi
 
+    # Debounce: avoid creating multiple snapshots for rapidly repeated events
+    # Configurable via environment variables when running the monitor
+    # BAKAP_DEBOUNCE_SECONDS - time window to coalesce events (default 5)
+    # BAKAP_SNAPSHOT_DELAY - seconds to wait before snapshotting to let writes settle (default 3)
+    DEBOUNCE_SECONDS=${BAKAP_DEBOUNCE_SECONDS:-5}
+    SLEEP_SECONDS=${BAKAP_SNAPSHOT_DELAY:-3}
+    # Use a small per-user timestamp file in /var/run
+    runstamp_dir=/var/run/bakap
+    mkdir -p "$runstamp_dir"
+    lastfile="$runstamp_dir/last_$user"
+    now=$(date +%s)
+    if [ -f "$lastfile" ]; then
+        last=$(cat "$lastfile" 2>/dev/null || echo 0)
+    else
+        last=0
+    fi
+    # If we created a snapshot less than DEBOUNCE_SECONDS ago, skip (coalesce)
+    if [ $((now - last)) -lt "$DEBOUNCE_SECONDS" ]; then
+        # update the timestamp so subsequent events extend the window
+        echo "$now" > "$lastfile" 2>/dev/null || true
+        continue
+    fi
+    # wait a short moment to let other file operations settle
+    sleep "$SLEEP_SECONDS"
     timestamp=$(date +%Y%m%d%H%M%S)
     snapshot_dir="/home/$user/versions/$timestamp"
     mkdir -p "$snapshot_dir"
@@ -97,6 +121,8 @@ while read path event; do
     chown -R root:root "$snapshot_dir" || true
     chmod -R 755 "$snapshot_dir" || true
     echo "$(date '+%F %T') Incremental snapshot created for $user at $timestamp due to $event" >> "$LOG"
+    # record last snapshot time
+    date +%s > "$lastfile" 2>/dev/null || true
 done
 EOF
 
