@@ -22,14 +22,6 @@ fi
 PASSWORD=$(pwgen -s 64 1)
 
 echo "Creating user $USERNAME with password: $PASSWORD"
-
-# Save password to root-only file for audit (one-line per user)
-mkdir -p /root/bakap_passwords
-PASS_FILE="/root/bakap_passwords/${USERNAME}.txt"
-printf "%s\n" "$PASSWORD" > "$PASS_FILE"
-chmod 600 "$PASS_FILE"
-chown root:root "$PASS_FILE"
-
 # Create user
 useradd -m -g backupusers -s /usr/sbin/nologin "$USERNAME"
 
