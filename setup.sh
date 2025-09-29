@@ -50,8 +50,9 @@ echo "Creating monitor script..."
 echo "Creating monitor script..."
 cat > /var/backups/scripts/monitor_backups.sh <<'EOF'
 #!/bin/bash
-# Real-time monitor script for user backups
-# Watches /home and filters events under uploads/ so new users/uploads are picked up even after start
+# Real-time queued monitor script for user backups
+# This implementation writes a per-user pending marker when uploads/ events occur
+# and a background worker snapshots each pending user once every DEBOUNCE_SECONDS.
 
 LOG=/var/log/backup_monitor.log
 mkdir -p "$(dirname "$LOG")"
@@ -59,10 +60,71 @@ touch "$LOG"
 chown root:adm "$LOG" 2>/dev/null || true
 chmod 640 "$LOG" 2>/dev/null || true
 
-# Watch /home recursively and react to close_write/moved_to/create events
-inotifywait -m -r /home -e close_write -e moved_to -e create --format '%w%f %e' |
-while read path event; do
-    # Only handle events that happen inside an uploads directory
+# Configurable via environment variables
+# QUIET_SECONDS: require this many seconds with no file events before snapshotting (default 60)
+# WORKER_POLL: how often worker wakes up to check pending users (default 5s)
+QUIET_SECONDS=${BAKAP_QUIET_SECONDS:-60}
+WORKER_POLL=${BAKAP_WORKER_POLL:-5}
+PENDING_DIR=/var/run/bakap/pending
+mkdir -p "$PENDING_DIR"
+chown root:root "$PENDING_DIR" 2>/dev/null || true
+chmod 755 "$PENDING_DIR" 2>/dev/null || true
+
+trace() { echo "$(date '+%F %T') $*" >> "$LOG" 2>/dev/null || true; }
+
+# Worker: periodically look for pending users and snapshot them once
+worker() {
+    while true; do
+        now=$(date +%s)
+        for tsfile in "$PENDING_DIR"/*; do
+            [ -e "$tsfile" ] || continue
+            user=$(basename "$tsfile")
+            last=$(cat "$tsfile" 2>/dev/null || echo 0)
+            # if last is not numeric, skip
+            if ! printf '%s' "$last" | grep -Eq '^[0-9]+$'; then
+                # remove malformed file
+                rm -f "$tsfile" 2>/dev/null || true
+                continue
+            fi
+            age=$(( now - last ))
+            if [ $age -lt "$QUIET_SECONDS" ]; then
+                # not quiet yet; skip
+                continue
+            fi
+            # it's been QUIET_SECONDS since last change; snapshot now
+            rm -f "$tsfile" 2>/dev/null || true
+            if [ ! -d "/home/$user/uploads" ]; then
+                trace "No uploads dir for $user, skipping"
+                continue
+            fi
+            timestamp=$(date +%Y%m%d%H%M%S)
+            snapshot_dir="/home/$user/versions/$timestamp"
+            mkdir -p "$snapshot_dir"
+            latest_snapshot=$(ls -d /home/$user/versions/* 2>/dev/null | sort | tail -1)
+            if [ -n "$latest_snapshot" ]; then
+                if cp -al "$latest_snapshot" "$snapshot_dir" 2>/dev/null; then
+                    rsync -a --delete "/home/$user/uploads/" "$snapshot_dir/"
+                else
+                    rsync -a --link-dest="$latest_snapshot" "/home/$user/uploads/" "$snapshot_dir/"
+                fi
+            else
+                rsync -a "/home/$user/uploads/" "$snapshot_dir/"
+            fi
+            chown -R root:root "$snapshot_dir" || true
+            chmod -R 755 "$snapshot_dir" || true
+            trace "Snapshot created for $user at $timestamp (age ${age}s)"
+        done
+        sleep "$WORKER_POLL"
+    done
+}
+
+# Start worker in background
+worker &
+WORKER_PID=$!
+trace "Started worker pid=$WORKER_PID"
+
+# Monitor: write a per-user pending marker on relevant events under uploads/
+inotifywait -m -r /home -e close_write -e moved_to -e create --format '%w%f %e' | while read path event; do
     case "$path" in
         */uploads|*/uploads/*)
             ;;
@@ -70,59 +132,13 @@ while read path event; do
             continue
             ;;
     esac
-
-    # Extract username from path: /home/<user>/uploads/...
     user=$(echo "$path" | awk -F/ '{print $3}')
     if [ -z "$user" ]; then
         continue
     fi
-
-    if [ ! -d "/home/$user/uploads" ]; then
-        # uploads dir might have been removed
-        continue
-    fi
-
-    # Debounce: avoid creating multiple snapshots for rapidly repeated events
-    # Configurable via environment variables when running the monitor
-    # BAKAP_DEBOUNCE_SECONDS - time window to coalesce events (default 5)
-    # BAKAP_SNAPSHOT_DELAY - seconds to wait before snapshotting to let writes settle (default 3)
-    DEBOUNCE_SECONDS=${BAKAP_DEBOUNCE_SECONDS:-5}
-    SLEEP_SECONDS=${BAKAP_SNAPSHOT_DELAY:-3}
-    # Use a small per-user timestamp file in /var/run
-    runstamp_dir=/var/run/bakap
-    mkdir -p "$runstamp_dir"
-    lastfile="$runstamp_dir/last_$user"
-    now=$(date +%s)
-    if [ -f "$lastfile" ]; then
-        last=$(cat "$lastfile" 2>/dev/null || echo 0)
-    else
-        last=0
-    fi
-    # If we created a snapshot less than DEBOUNCE_SECONDS ago, skip (coalesce)
-    if [ $((now - last)) -lt "$DEBOUNCE_SECONDS" ]; then
-        # update the timestamp so subsequent events extend the window
-        echo "$now" > "$lastfile" 2>/dev/null || true
-        continue
-    fi
-    # wait a short moment to let other file operations settle
-    sleep "$SLEEP_SECONDS"
-    timestamp=$(date +%Y%m%d%H%M%S)
-    snapshot_dir="/home/$user/versions/$timestamp"
-    mkdir -p "$snapshot_dir"
-
-    latest_snapshot=$(ls -d /home/$user/versions/* 2>/dev/null | sort | tail -1)
-
-    if [ -n "$latest_snapshot" ]; then
-        rsync -a --link-dest="$latest_snapshot" "/home/$user/uploads/" "$snapshot_dir/"
-    else
-        rsync -a "/home/$user/uploads/" "$snapshot_dir/"
-    fi
-
-    chown -R root:root "$snapshot_dir" || true
-    chmod -R 755 "$snapshot_dir" || true
-    echo "$(date '+%F %T') Incremental snapshot created for $user at $timestamp due to $event" >> "$LOG"
-    # record last snapshot time
-    date +%s > "$lastfile" 2>/dev/null || true
+    # record last-event epoch (atomic)
+    echo "$(date +%s)" > "$PENDING_DIR/$user"
+    trace "Recorded event for $user at $(cat $PENDING_DIR/$user) due to $event on $path"
 done
 EOF
 
