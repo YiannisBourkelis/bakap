@@ -172,12 +172,16 @@ put "$LocalPath" "$DestPath"
   if ($LogDebug.IsPresent) {
     $logFile = [System.IO.Path]::GetTempFileName()
     Write-Host "Debug mode: WinSCP raw log will be saved to $logFile"
-    & $winscp "/log=$logFile" "/script=$winscpScript"
+    $output = & $winscp "/log=$logFile" "/script=$winscpScript"
     $rc = $LASTEXITCODE
     Write-Host "WinSCP log: $logFile"
   } else {
-    & $winscp "/script=$winscpScript"
+    $output = & $winscp "/script=$winscpScript"
     $rc = $LASTEXITCODE
+  }
+  # Handle synchronize "Nothing to synchronize." as success (exit code 1)
+  if ($rc -eq 1 -and $output -match "Nothing to synchronize") {
+    $rc = 0
   }
   Remove-Item -Force $winscpScript -ErrorAction SilentlyContinue
   if ($rc -ne 0) { Write-Err "WinSCP failed with exit code $rc"; exit $rc }
