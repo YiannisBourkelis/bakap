@@ -6,6 +6,7 @@
   Compatible with Windows Server 2008 R2 and later (PowerShell 2.0+).
   Prefers WinSCP (WinSCP.com). If WinSCP is not installed, falls back to PuTTY's pscp.exe.
   By default, skips upload if the remote file exists and has the same SHA-256 hash (for single files).
+  For directories, uses incremental sync to resume partial transfers and skip identical files (based on size/time).
   Use -Force to overwrite or upload even if identical.
 
 .PARAMETER LocalPath
@@ -149,10 +150,16 @@ rm "$DestPath"
     }
   }
 
-  # Use recursive put for directories
-  $putCmd = @"
+  # Use synchronize for directories (incremental sync, no delete), put for files
+  if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
+    $putCmd = @"
+synchronize local "$LocalPath" "$DestPath" -delete=no
+"@
+  } else {
+    $putCmd = @"
 put "$LocalPath" "$DestPath"
 "@
+  }
 
   # Build script file: open, optional pre-commands, put, exit
   $sb = "open sftp://$Username@${Server}/ -password=`"$Password`" $hostKeyOpt`r`n"
