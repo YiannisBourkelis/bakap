@@ -63,6 +63,12 @@ if (-not (Test-Path -LiteralPath $LocalPath)) {
 
 Write-Host "Uploading '$LocalPath' as user '$Username' to $Server:$DestPath"
 
+# Build host key option
+$hostKeyOpt = ""
+if ($ExpectedHostFingerprint -ne "") {
+  $hostKeyOpt = "-hostkey=`"$ExpectedHostFingerprint`""
+}
+
 # Find WinSCP.com
 $winscp = $null
 # Use user-specified WinSCPPath if provided and validate it
@@ -125,11 +131,6 @@ if (-not $Force.IsPresent -and $winscp -and -not ((Test-Path -LiteralPath $Local
 if ($winscp) {
     Write-Host "Using WinSCP: $winscp"
     # Build WinSCP script contents
-  if ($ExpectedHostFingerprint -ne "") {
-    $hostKeyOpt = "-hostkey=`"$ExpectedHostFingerprint`""
-  } else {
-    $hostKeyOpt = ""
-  }
 
   # Prepare WinSCP script file
   $winscpScript = [System.IO.Path]::GetTempFileName()
@@ -153,6 +154,7 @@ rm "$DestPath"
   # Use synchronize for directories (incremental sync, no delete), put for files
   if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
     $putCmd = @"
+mkdir -p "$DestPath"
 synchronize local "$LocalPath" "$DestPath" -delete=no
 "@
   } else {
