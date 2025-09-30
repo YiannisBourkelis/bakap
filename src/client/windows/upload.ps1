@@ -5,6 +5,8 @@
 .DESCRIPTION
   Compatible with Windows Server 2008 R2 and later (PowerShell 2.0+).
   Prefers WinSCP (WinSCP.com). If WinSCP is not installed, falls back to PuTTY's pscp.exe.
+  By default, skips upload if the remote file exists and has the same SHA-256 hash (for single files).
+  Use -Force to overwrite or upload even if identical.
 
 .PARAMETER LocalPath
   Local file or directory to upload.
@@ -19,13 +21,14 @@
 .PARAMETER LogDebug
   Enable debug logging to a temporary file (shows WinSCP/pscp raw output).
 .PARAMETER Force
-  Force overwrite of remote files/directories.
+  Force upload: overwrite existing remote files/directories and upload even if identical.
 .PARAMETER WinSCPPath
   Path to WinSCP.com executable (if not in PATH).
 
 USAGE
   .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -DestPath uploads/ -ExpectedHostFingerprint 'SHA256:...'
-  .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -DestPath uploads/ -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com'
+  .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -DestPath uploads/ -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com' -Force
+  .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -DestPath uploads/ -SkipIdentical
 
 Notes:
 - Install WinSCP and put WinSCP.com in PATH for best results: https://winscp.net/
