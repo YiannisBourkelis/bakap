@@ -65,6 +65,13 @@ $winscp = $null
 if (-not ([string]::IsNullOrEmpty($WinSCPPath) -or [string]::IsNullOrEmpty($WinSCPPath.Trim()))) {
   if (Test-Path $WinSCPPath) {
     $winscp = $WinSCPPath
+    # If .exe provided, try to use .com instead (console version)
+    if ($winscp.EndsWith(".exe")) {
+      $comPath = $winscp -replace "\.exe$", ".com"
+      if (Test-Path $comPath) {
+        $winscp = $comPath
+      }
+    }
   } else {
     Write-Err "Provided WinSCPPath not found: $WinSCPPath"
     exit 2
@@ -119,7 +126,7 @@ put "$LocalPath" "$DestPath"
   }
 
   # Build script file: open, optional pre-commands, put, exit
-  $sb = "open sftp://$Username:$Password@${Server}/ $hostKeyOpt`r`n"
+  $sb = "open sftp://$Username@${Server}/ -password=`"$Password`" $hostKeyOpt`r`n"
   if ($preCmds -ne "") { $sb += "$preCmds`r`n" }
   $sb += "$putCmd`r`n"
   $sb += "exit`r`n"
