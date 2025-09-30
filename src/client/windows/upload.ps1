@@ -19,6 +19,7 @@
 
 USAGE
   .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -DestPath uploads/ -ExpectedHostFingerprint 'SHA256:...'
+  .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -DestPath uploads/ -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com'
 
 Notes:
 - Install WinSCP and put WinSCP.com in PATH for best results: https://winscp.net/
@@ -30,7 +31,10 @@ param(
   [Parameter(Mandatory=$true)][string]$Username,
   [Parameter(Mandatory=$true)][string]$Password,
   [string]$DestPath = "uploads/",
-  [string]$ExpectedHostFingerprint = ""
+  [string]$ExpectedHostFingerprint = "",
+  [switch]$Debug,
+  [switch]$Force,
+  [string]$WinSCPPath = ""
 )
 
 # Normalize destination path: strip leading slashes/backslashes so the path is
@@ -51,44 +55,76 @@ Write-Host "Uploading '$LocalPath' as user '$Username' to $Server:$DestPath"
 
 # Find WinSCP.com
 $winscp = $null
-try { $winscp = (Get-Command WinSCP.com -ErrorAction SilentlyContinue).Source } catch { $winscp = $null }
+# Use user-specified WinSCPPath if provided and validate it
+if ([string]::IsNullOrWhiteSpace($WinSCPPath) -eq $false) {
+  if (Test-Path $WinSCPPath) {
+    $winscp = $WinSCPPath
+  } else {
+    Write-Err "Provided WinSCPPath not found: $WinSCPPath"
+    exit 2
+  }
+}
 if (-not $winscp) {
-    # try common install locations
-    $possible = @("$env:ProgramFiles\WinSCP\WinSCP.com", "$env:ProgramFiles(x86)\WinSCP\WinSCP.com")
-    foreach ($p in $possible) { if (Test-Path $p) { $winscp = $p; break } }
+  try { $winscp = (Get-Command WinSCP.com -ErrorAction SilentlyContinue).Source } catch { $winscp = $null }
+}
+if (-not $winscp) {
+  # try common install locations
+  $possible = @("$env:ProgramFiles\WinSCP\WinSCP.com", "$env:ProgramFiles(x86)\WinSCP\WinSCP.com")
+  foreach ($p in $possible) { if (Test-Path $p) { $winscp = $p; break } }
 }
 
 if ($winscp) {
     Write-Host "Using WinSCP: $winscp"
     # Build WinSCP script contents
-    if ($ExpectedHostFingerprint -ne "") {
-        $hostKeyOpt = "-hostkey=`"$ExpectedHostFingerprint`""
+  if ($ExpectedHostFingerprint -ne "") {
+    $hostKeyOpt = "-hostkey=`"$ExpectedHostFingerprint`""
+  } else {
+    $hostKeyOpt = ""
+  }
+
+  # Prepare WinSCP script file
+  $winscpScript = New-TemporaryFile
+
+  # If Force: remove remote target first (for directories remove recursively)
+  $preCmds = ""
+  if ($Force.IsPresent) {
+    if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
+      # remove remote directory if exists
+      $preCmds = "rm -r \"$DestPath\"; mkdir \"$DestPath\"; "
     } else {
-        $hostKeyOpt = ""
+      $preCmds = "rm \"$DestPath\"; "
     }
+  }
 
-    $winscpScript = New-TemporaryFile
-    $openLine = "open sftp://$Username:`"$Password`"@$Server/ $hostKeyOpt"
-    # Use recursive put for directories
-    $putCmd = if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
-        "put -r `"$LocalPath`" `"$DestPath`""
-    } else {
-        "put `"$LocalPath`" `"$DestPath`""
-    }
+  # Use recursive put for directories
+  if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
+    $putCmd = "put -r \"$LocalPath\" \"$DestPath\""
+  } else {
+    $putCmd = "put \"$LocalPath\" \"$DestPath\""
+  }
 
-    # Build script file
-    $sb = "open sftp://$Username:$Password@${Server}/ $hostKeyOpt`r`n"
-    $sb += "$putCmd`r`n"
-    $sb += "exit`r`n"
-    Set-Content -Path $winscpScript -Value $sb -Encoding ASCII
+  # Build script file: open, optional pre-commands, put, exit
+  $sb = "open sftp://$Username:$Password@${Server}/ $hostKeyOpt`r`n"
+  if ($preCmds -ne "") { $sb += "$preCmds`r`n" }
+  $sb += "$putCmd`r`n"
+  $sb += "exit`r`n"
+  Set-Content -Path $winscpScript -Value $sb -Encoding ASCII
 
-    # Run WinSCP.com with the script (it will show progress)
+  # Build WinSCP command; if Debug, request a log file
+  if ($Debug.IsPresent) {
+    $logFile = [System.IO.Path]::GetTempFileName()
+    Write-Host "Debug mode: WinSCP raw log will be saved to $logFile"
+    & $winscp "/log=$logFile" "/script=$winscpScript"
+    $rc = $LASTEXITCODE
+    Write-Host "WinSCP log: $logFile"
+  } else {
     & $winscp "/script=$winscpScript"
     $rc = $LASTEXITCODE
-    Remove-Item -Force $winscpScript -ErrorAction SilentlyContinue
-    if ($rc -ne 0) { Write-Err "WinSCP failed with exit code $rc"; exit $rc }
-    Write-Host "Upload finished."
-    exit 0
+  }
+  Remove-Item -Force $winscpScript -ErrorAction SilentlyContinue
+  if ($rc -ne 0) { Write-Err "WinSCP failed with exit code $rc"; exit $rc }
+  Write-Host "Upload finished."
+  exit 0
 }
 
 # Fallback: pscp (PuTTY's scp). This may or may not be available and scp may be disabled server-side.
@@ -101,16 +137,45 @@ if (-not $pscp) {
 
 if ($pscp) {
     Write-Host "Using pscp: $pscp"
+  # If Force, remove remote target first using sftp batch
+  if ($Force.IsPresent) {
+    $sftpBatch = New-TemporaryFile
     if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
-        # recursive directory copy
-        & $pscp -r -pw $Password $LocalPath "$Username@$Server:$DestPath"
+      # remove remote directory and recreate
+      Set-Content -Path $sftpBatch -Value "rm -r $DestPath`r
+mkdir $DestPath`r
+bye`r
+" -Encoding ASCII
     } else {
-        & $pscp -pw $Password $LocalPath "$Username@$Server:$DestPath"
+      Set-Content -Path $sftpBatch -Value "rm $DestPath`r
+bye`r
+" -Encoding ASCII
+    }
+    # run sftp in batch mode (assumes sftp present)
+    sftp -b $sftpBatch "$Username@$Server" 2>$null || true
+    Remove-Item -Force $sftpBatch -ErrorAction SilentlyContinue
+  }
+
+  if ($Debug.IsPresent) {
+    $logFile = [System.IO.Path]::GetTempFileName()
+    if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
+      & $pscp -r -pw $Password $LocalPath "$Username@$Server:$DestPath" *>&1 | Tee-Object -FilePath $logFile
+    } else {
+      & $pscp -pw $Password $LocalPath "$Username@$Server:$DestPath" *>&1 | Tee-Object -FilePath $logFile
     }
     $rc = $LASTEXITCODE
-    if ($rc -ne 0) { Write-Err "pscp failed with exit code $rc"; exit $rc }
-    Write-Host "Upload finished."
-    exit 0
+    Write-Host "pscp debug log: $logFile"
+  } else {
+    if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
+      & $pscp -r -pw $Password $LocalPath "$Username@$Server:$DestPath"
+    } else {
+      & $pscp -pw $Password $LocalPath "$Username@$Server:$DestPath"
+    }
+    $rc = $LASTEXITCODE
+  }
+  if ($rc -ne 0) { Write-Err "pscp failed with exit code $rc"; exit $rc }
+  Write-Host "Upload finished."
+  exit 0
 }
 
 Write-Err "Neither WinSCP.com nor pscp.exe found. Please install WinSCP (recommended) or PuTTY and ensure the executable is in PATH."
