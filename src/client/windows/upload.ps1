@@ -16,6 +16,12 @@
   Destination path relative to the user's chroot (default: uploads/).
 .PARAMETER ExpectedHostFingerprint
   Optional expected host fingerprint (pass to WinSCP as-is for verification). Example: "ssh-ed25519 256 AAAA..." or "SHA256:..." depending on what you have.
+.PARAMETER LogDebug
+  Enable debug logging to a temporary file (shows WinSCP/pscp raw output).
+.PARAMETER Force
+  Force overwrite of remote files/directories.
+.PARAMETER WinSCPPath
+  Path to WinSCP.com executable (if not in PATH).
 
 USAGE
   .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -DestPath uploads/ -ExpectedHostFingerprint 'SHA256:...'
@@ -32,7 +38,7 @@ param(
   [Parameter(Mandatory=$true)][string]$Password,
   [string]$DestPath = "uploads/",
   [string]$ExpectedHostFingerprint = "",
-  [switch]$Debug,
+  [switch]$LogDebug,
   [switch]$Force,
   [string]$WinSCPPath = ""
 )
@@ -120,7 +126,7 @@ put "$LocalPath" "$DestPath"
   Set-Content -Path $winscpScript -Value $sb -Encoding ASCII
 
   # Build WinSCP command; if Debug, request a log file
-  if ($Debug.IsPresent) {
+  if ($LogDebug.IsPresent) {
     $logFile = [System.IO.Path]::GetTempFileName()
     Write-Host "Debug mode: WinSCP raw log will be saved to $logFile"
     & $winscp "/log=$logFile" "/script=$winscpScript"
@@ -169,7 +175,7 @@ bye
     Remove-Item -Force $sftpBatch -ErrorAction SilentlyContinue
   }
 
-  if ($Debug.IsPresent) {
+  if ($LogDebug.IsPresent) {
     $logFile = [System.IO.Path]::GetTempFileName()
     if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
       & $pscp -r -pw $Password $LocalPath "$Username@$Server:$DestPath" 2>&1 | Tee-Object -FilePath $logFile
