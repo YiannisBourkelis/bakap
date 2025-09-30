@@ -103,9 +103,13 @@ rm "$DestPath"
 
   # Use recursive put for directories
   if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
-    $putCmd = "put -r \"$LocalPath\" \"$DestPath\""
+    $putCmd = @"
+put -r "$LocalPath" "$DestPath"
+"@
   } else {
-    $putCmd = "put \"$LocalPath\" \"$DestPath\""
+    $putCmd = @"
+put "$LocalPath" "$DestPath"
+"@
   }
 
   # Build script file: open, optional pre-commands, put, exit
