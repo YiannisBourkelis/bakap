@@ -165,7 +165,7 @@ bye
       Set-Content -Path $sftpBatch -Value $batch -Encoding ASCII
     }
     # run sftp in batch mode (assumes sftp present)
-    sftp -b $sftpBatch "$Username@$Server" 2>$null || true
+    & sftp -b $sftpBatch "$Username@$Server" 2>$null
     Remove-Item -Force $sftpBatch -ErrorAction SilentlyContinue
   }
 
