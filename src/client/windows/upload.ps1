@@ -115,15 +115,9 @@ rm "$DestPath"
   }
 
   # Use recursive put for directories
-  if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
-    $putCmd = @"
-put -r "$LocalPath" "$DestPath"
-"@
-  } else {
-    $putCmd = @"
+  $putCmd = @"
 put "$LocalPath" "$DestPath"
 "@
-  }
 
   # Build script file: open, optional pre-commands, put, exit
   $sb = "open sftp://$Username@${Server}/ -password=`"$Password`" $hostKeyOpt`r`n"
