@@ -46,7 +46,7 @@ param(
 # Normalize destination path: strip leading slashes/backslashes so the path is
 # always relative to the user's chroot. If empty after trimming, use 'uploads'.
 $DestPath = $DestPath.TrimStart('/','\')
-if ([string]::IsNullOrWhiteSpace($DestPath)) { $DestPath = 'uploads' }
+if ([string]::IsNullOrEmpty($DestPath) -or [string]::IsNullOrEmpty($DestPath.Trim())) { $DestPath = 'uploads' }
 
 $Server = "202.61.225.34"
 
@@ -62,7 +62,7 @@ Write-Host "Uploading '$LocalPath' as user '$Username' to $Server:$DestPath"
 # Find WinSCP.com
 $winscp = $null
 # Use user-specified WinSCPPath if provided and validate it
-if ([string]::IsNullOrWhiteSpace($WinSCPPath) -eq $false) {
+if (-not ([string]::IsNullOrEmpty($WinSCPPath) -or [string]::IsNullOrEmpty($WinSCPPath.Trim()))) {
   if (Test-Path $WinSCPPath) {
     $winscp = $WinSCPPath
   } else {
