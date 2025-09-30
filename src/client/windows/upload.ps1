@@ -89,6 +89,38 @@ if (-not $winscp) {
   foreach ($p in $possible) { if (Test-Path $p) { $winscp = $p; break } }
 }
 
+# If not Force and LocalPath is a file, check if remote file has same hash (only if WinSCP is available)
+if (-not $Force.IsPresent -and $winscp -and -not ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer)) {
+    # Compute local SHA-256 hash
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $localHash = [BitConverter]::ToString($sha256.ComputeHash([System.IO.File]::ReadAllBytes($LocalPath))).Replace("-", "").ToLower()
+    $sha256.Dispose()
+
+    # Run WinSCP to get remote checksum
+    $checkScript = [System.IO.Path]::GetTempFileName()
+    $checkSb = "open sftp://$Username@${Server}/ -password=`"$Password`" $hostKeyOpt`r`n"
+    $checkSb += "checksum SHA-256 `"$DestPath`"`r`n"
+    $checkSb += "exit`r`n"
+    Set-Content -Path $checkScript -Value $checkSb -Encoding ASCII
+
+    $checkOutput = & $winscp "/script=$checkScript" 2>&1
+    $checkRc = $LASTEXITCODE
+    Remove-Item -Force $checkScript -ErrorAction SilentlyContinue
+
+    if ($checkRc -eq 0) {
+        # Parse output: "SHA-256 checksum is <hash> for <file>"
+        $match = $checkOutput | Select-String -Pattern "SHA-256 checksum is (\w+) for"
+        if ($match) {
+            $remoteHash = $match.Matches.Groups[1].Value.ToLower()
+            if ($remoteHash -eq $localHash) {
+                Write-Host "Remote file is identical (SHA-256 hash matches), skipping upload."
+                exit 0
+            }
+        }
+    }
+    # If checksum failed (e.g., file not exist), proceed with upload
+}
+
 if ($winscp) {
     Write-Host "Using WinSCP: $winscp"
     # Build WinSCP script contents
