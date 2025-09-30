@@ -154,7 +154,6 @@ rm "$DestPath"
   # Use synchronize for directories (incremental sync, no delete), put for files
   if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
     $putCmd = @"
-mkdir -p "$DestPath"
 synchronize local "$LocalPath" "$DestPath" -delete=no
 "@
   } else {
