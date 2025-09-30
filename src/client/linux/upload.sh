@@ -37,6 +37,13 @@ LOCAL_PATH=$1
 USERNAME=$2
 PASSWORD=$3
 DEST_PATH=${4:-uploads/}
+# Normalize destination path: remove leading slash so paths are always relative
+# to the user's chroot (some clients/servers treat leading slash as absolute
+# and that can cause permission failures). Also ensure non-empty.
+DEST_PATH="${DEST_PATH#/}"
+if [ -z "$DEST_PATH" ]; then
+    DEST_PATH="uploads"
+fi
 EXPECTED_FP=${5:-}
 
 if [ ! -e "$LOCAL_PATH" ]; then

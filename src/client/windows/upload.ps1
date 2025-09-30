@@ -26,12 +26,17 @@ Notes:
 #>
 
 param(
-    [Parameter(Mandatory=$true)][string]$LocalPath,
-    [Parameter(Mandatory=$true)][string]$Username,
-    [Parameter(Mandatory=$true)][string]$Password,
-    [string]$DestPath = "uploads/",
-    [string]$ExpectedHostFingerprint = ""
+  [Parameter(Mandatory=$true)][string]$LocalPath,
+  [Parameter(Mandatory=$true)][string]$Username,
+  [Parameter(Mandatory=$true)][string]$Password,
+  [string]$DestPath = "uploads/",
+  [string]$ExpectedHostFingerprint = ""
 )
+
+# Normalize destination path: strip leading slashes/backslashes so the path is
+# always relative to the user's chroot. If empty after trimming, use 'uploads'.
+$DestPath = $DestPath.TrimStart('/','\')
+if ([string]::IsNullOrWhiteSpace($DestPath)) { $DestPath = 'uploads' }
 
 $Server = "202.61.225.34"
 
