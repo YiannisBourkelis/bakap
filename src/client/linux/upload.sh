@@ -25,8 +25,29 @@ Notes:
 - The password will appear in the process list while the command runs when using sshpass. Prefer SSH keys.
 - The destination path is relative to the user's chroot (most installs use uploads/).
 - If provided, expected-host-fingerprint will be compared to the server's SSH key fingerprint before adding it to your known_hosts.
+
+Options:
+    --debug    Run lftp with debugging enabled and save raw output to /tmp/bakap-upload-debug-<ts>.log
 EOF
 }
+
+# Support an optional --debug flag anywhere in the args. If present, remove it from
+# positional arguments and enable debug mode.
+DEBUG=0
+newargs=()
+for _a in "$@"; do
+    if [ "$_a" = "--debug" ]; then
+        DEBUG=1
+        continue
+    fi
+    newargs+=("$_a")
+done
+# Reset positional parameters to the filtered list
+if [ ${#newargs[@]} -gt 0 ]; then
+    set -- "${newargs[@]}"
+else
+    set --
+fi
 
 if [ "$#" -lt 3 ]; then
     usage
@@ -45,6 +66,13 @@ if [ -z "$DEST_PATH" ]; then
     DEST_PATH="uploads"
 fi
 EXPECTED_FP=${5:-}
+
+# If debugging enabled, prepare a debug output file
+if [ "$DEBUG" -eq 1 ]; then
+    DEBUG_OUT="/tmp/bakap-upload-debug-$(date +%s).log"
+    echo "Debug mode: raw lftp output will be saved to $DEBUG_OUT"
+    : >"$DEBUG_OUT" || true
+fi
 
 if [ ! -e "$LOCAL_PATH" ]; then
     echo "Local path does not exist: $LOCAL_PATH" >&2
@@ -112,17 +140,83 @@ ensure_host_key || true
 # Prefer lftp if available (gives a nice progress bar and supports sftp protocol)
 if command -v lftp >/dev/null 2>&1; then
     echo "Using lftp (shows progress)."
+
+    # run lftp and filter out harmless mkdir Access failed lines while preserving exit code
+    run_lftp() {
+        local url="$1"; shift
+        local cmds="$*"
+        local out
+        out=$(mktemp)
+        # run lftp (with debug flag if requested), capture combined output
+        if [ "${DEBUG:-0}" -eq 1 ]; then
+            lftp -d -u "$USERNAME","$PASSWORD" "$url" -e "$cmds" >"$out" 2>&1
+        else
+            lftp -u "$USERNAME","$PASSWORD" "$url" -e "$cmds" >"$out" 2>&1
+        fi
+        local rc=$?
+        # if debugging, append raw output (with header) to debug file for later inspection
+        if [ "${DEBUG:-0}" -eq 1 ] && [ -n "${DEBUG_OUT:-}" ]; then
+            printf "\n--- LFTP RAW OUTPUT: %s %s ---\n" "$(date '+%F %T')" "$url $cmds" >>"$DEBUG_OUT" 2>/dev/null || true
+            cat "$out" >>"$DEBUG_OUT" 2>/dev/null || true
+            printf "\n--- END LFTP RAW OUTPUT ---\n" >>"$DEBUG_OUT" 2>/dev/null || true
+        fi
+        # filter out known harmless mkdir messages but keep everything else
+        sed -E '/^mkdir: Access failed:/d' "$out" || true
+        rm -f "$out"
+        return $rc
+    }
+
+    # helper: inspect remote path type. Sets REMOTE_TYPE to one of: missing, dir, file
+    remote_path_type() {
+        REMOTE_TYPE="missing"
+        tmp=$(mktemp)
+        # use run_lftp to get listing (filtered)
+        run_lftp sftp://$DEFAULT_SERVER "cls -l \"$1\"; bye" >"$tmp" 2>/dev/null || true
+        if [ -s "$tmp" ]; then
+            firstchar=$(cut -c1 "$tmp" | head -n1 2>/dev/null || echo "")
+            if [ "$firstchar" = "d" ]; then
+                REMOTE_TYPE="dir"
+            else
+                REMOTE_TYPE="file"
+            fi
+        fi
+        rm -f "$tmp"
+    }
+
     # lftp: for directories use mirror -R, for files use put
     if [ -d "$LOCAL_PATH" ]; then
-        # mirror local dir to remote dest path (create remote dir if needed)
-        lftp -u "$USERNAME","$PASSWORD" sftp://$DEFAULT_SERVER -e \
-            "mkdir -p $DEST_PATH; mirror -R --verbose --continue --parallel=2 \"$LOCAL_PATH\" \"$DEST_PATH\"; bye"
+        # inspect remote path
+        remote_path_type "$DEST_PATH"
+        if [ "$REMOTE_TYPE" = "file" ]; then
+            # remote path is a file; upload into its parent as a directory to avoid mkdir errors
+            PARENT_DIR=$(dirname "$DEST_PATH")
+            BASENAME=$(basename "$LOCAL_PATH")
+            TARGET="$PARENT_DIR/$BASENAME"
+            # ensure parent exists
+            lftp -u "$USERNAME","$PASSWORD" sftp://$DEFAULT_SERVER -e "mkdir -p \"$PARENT_DIR\"; bye" >/dev/null 2>&1 || true
+            run_lftp sftp://$DEFAULT_SERVER "mirror -R --verbose --continue --parallel=2 \"$LOCAL_PATH\" \"$TARGET\"; bye"
+        else
+            # missing or dir -> ensure directory exists then mirror
+            if [ "$REMOTE_TYPE" = "missing" ]; then
+                run_lftp sftp://$DEFAULT_SERVER "mkdir -p \"$DEST_PATH\"; bye" >/dev/null 2>&1 || true
+            fi
+            run_lftp sftp://$DEFAULT_SERVER "mirror -R --verbose --continue --parallel=2 \"$LOCAL_PATH\" \"$DEST_PATH\"; bye"
+        fi
     else
-        # Ensure remote directory exists and upload file
+        # single file upload: ensure remote dir exists and upload file
         REMOTE_DIR="$DEST_PATH"
-        # strip trailing slash for lftp put -O
-        lftp -u "$USERNAME","$PASSWORD" sftp://$DEFAULT_SERVER -e \
-            "mkdir -p $REMOTE_DIR; put -O $REMOTE_DIR \"$LOCAL_PATH\"; bye"
+        # inspect remote path
+        remote_path_type "$REMOTE_DIR"
+        if [ "$REMOTE_TYPE" = "file" ]; then
+            # remote path is a file name; overwrite it
+            run_lftp sftp://$DEFAULT_SERVER "put -O \"$(dirname "$REMOTE_DIR")\" \"$LOCAL_PATH\"; bye"
+        else
+            if [ "$REMOTE_TYPE" = "missing" ]; then
+                run_lftp sftp://$DEFAULT_SERVER "mkdir -p \"$REMOTE_DIR\"; bye" >/dev/null 2>&1 || true
+            fi
+            # put -O into the remote dir
+            run_lftp sftp://$DEFAULT_SERVER "put -O \"$REMOTE_DIR\" \"$LOCAL_PATH\"; bye"
+        fi
     fi
     rc=$?
     if [ $rc -ne 0 ]; then
