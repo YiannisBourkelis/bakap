@@ -145,24 +145,21 @@ if command -v lftp >/dev/null 2>&1; then
     run_lftp() {
         local url="$1"; shift
         local cmds="$*"
-        local out
-        out=$(mktemp)
-        # run lftp (with debug flag if requested), capture combined output
-        if [ "${DEBUG:-0}" -eq 1 ]; then
-            lftp -d -u "$USERNAME","$PASSWORD" "$url" -e "$cmds" >"$out" 2>&1
-        else
-            lftp -u "$USERNAME","$PASSWORD" "$url" -e "$cmds" >"$out" 2>&1
-        fi
-        local rc=$?
-        # if debugging, append raw output (with header) to debug file for later inspection
+        # We need to stream output live so progress bars show up. Use a pipeline
+        # where lftp writes to stdout/stderr combined, optionally tee raw output
+        # to the debug file, and sed filters harmless mkdir messages before
+        # displaying to the user.
+        set +e
         if [ "${DEBUG:-0}" -eq 1 ] && [ -n "${DEBUG_OUT:-}" ]; then
-            printf "\n--- LFTP RAW OUTPUT: %s %s ---\n" "$(date '+%F %T')" "$url $cmds" >>"$DEBUG_OUT" 2>/dev/null || true
-            cat "$out" >>"$DEBUG_OUT" 2>/dev/null || true
-            printf "\n--- END LFTP RAW OUTPUT ---\n" >>"$DEBUG_OUT" 2>/dev/null || true
+            # debug: tee raw output to DEBUG_OUT, then filter for terminal
+            lftp -d -u "$USERNAME","$PASSWORD" "$url" -e "$cmds" 2>&1 | tee -a "$DEBUG_OUT" | sed -E '/^mkdir: Access failed:/d'
+            rc=${PIPESTATUS[0]}
+        else
+            # normal: no tee, no -d, stream filtered output
+            lftp -u "$USERNAME","$PASSWORD" "$url" -e "$cmds" 2>&1 | sed -E '/^mkdir: Access failed:/d'
+            rc=${PIPESTATUS[0]}
         fi
-        # filter out known harmless mkdir messages but keep everything else
-        sed -E '/^mkdir: Access failed:/d' "$out" || true
-        rm -f "$out"
+        set -e
         return $rc
     }
 
