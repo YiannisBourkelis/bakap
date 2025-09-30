@@ -142,14 +142,18 @@ if ($pscp) {
     $sftpBatch = New-TemporaryFile
     if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
       # remove remote directory and recreate
-      Set-Content -Path $sftpBatch -Value "rm -r $DestPath`r
-mkdir $DestPath`r
-bye`r
-" -Encoding ASCII
+      $batch = @"
+rm -r $DestPath
+mkdir $DestPath
+bye
+"@
+      Set-Content -Path $sftpBatch -Value $batch -Encoding ASCII
     } else {
-      Set-Content -Path $sftpBatch -Value "rm $DestPath`r
-bye`r
-" -Encoding ASCII
+      $batch = @"
+rm $DestPath
+bye
+"@
+      Set-Content -Path $sftpBatch -Value $batch -Encoding ASCII
     }
     # run sftp in batch mode (assumes sftp present)
     sftp -b $sftpBatch "$Username@$Server" 2>$null || true
