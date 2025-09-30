@@ -63,12 +63,6 @@ if (-not (Test-Path -LiteralPath $LocalPath)) {
 
 Write-Host "Uploading '$LocalPath' as user '$Username' to $Server:$DestPath"
 
-# Build host key option
-$hostKeyOpt = ""
-if ($ExpectedHostFingerprint -ne "") {
-  $hostKeyOpt = "-hostkey=`"$ExpectedHostFingerprint`""
-}
-
 # Find WinSCP.com
 $winscp = $null
 # Use user-specified WinSCPPath if provided and validate it
@@ -131,6 +125,11 @@ if (-not $Force.IsPresent -and $winscp -and -not ((Test-Path -LiteralPath $Local
 if ($winscp) {
     Write-Host "Using WinSCP: $winscp"
     # Build WinSCP script contents
+  if ($ExpectedHostFingerprint -ne "") {
+    $hostKeyOpt = "-hostkey=`"$ExpectedHostFingerprint`""
+  } else {
+    $hostKeyOpt = ""
+  }
 
   # Prepare WinSCP script file
   $winscpScript = [System.IO.Path]::GetTempFileName()
@@ -173,16 +172,12 @@ put "$LocalPath" "$DestPath"
   if ($LogDebug.IsPresent) {
     $logFile = [System.IO.Path]::GetTempFileName()
     Write-Host "Debug mode: WinSCP raw log will be saved to $logFile"
-    $output = & $winscp "/log=$logFile" "/script=$winscpScript"
+    & $winscp "/log=$logFile" "/script=$winscpScript"
     $rc = $LASTEXITCODE
     Write-Host "WinSCP log: $logFile"
   } else {
-    $output = & $winscp "/script=$winscpScript"
+    & $winscp "/script=$winscpScript"
     $rc = $LASTEXITCODE
-  }
-  # Handle synchronize "Nothing to synchronize." as success (exit code 1)
-  if ($rc -eq 1 -and $output -match "Nothing to synchronize") {
-    $rc = 0
   }
   Remove-Item -Force $winscpScript -ErrorAction SilentlyContinue
   if ($rc -ne 0) { Write-Err "WinSCP failed with exit code $rc"; exit $rc }
