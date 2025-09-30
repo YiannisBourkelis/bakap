@@ -90,9 +90,14 @@ if ($winscp) {
   if ($Force.IsPresent) {
     if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
       # remove remote directory if exists
-      $preCmds = "rm -r \"$DestPath\"; mkdir \"$DestPath\"; "
+      $preCmds = @"
+rm -r "$DestPath"
+mkdir "$DestPath"
+"@
     } else {
-      $preCmds = "rm \"$DestPath\"; "
+      $preCmds = @"
+rm "$DestPath"
+"@
     }
   }
 
