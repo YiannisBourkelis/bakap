@@ -89,7 +89,7 @@ if ($winscp) {
   }
 
   # Prepare WinSCP script file
-  $winscpScript = New-TemporaryFile
+  $winscpScript = [System.IO.Path]::GetTempFileName()
 
   # If Force: remove remote target first (for directories remove recursively)
   $preCmds = ""
@@ -154,7 +154,7 @@ if ($pscp) {
     Write-Host "Using pscp: $pscp"
   # If Force, remove remote target first using sftp batch
   if ($Force.IsPresent) {
-    $sftpBatch = New-TemporaryFile
+    $sftpBatch = [System.IO.Path]::GetTempFileName()
     if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
       # remove remote directory and recreate
       $batch = @"
