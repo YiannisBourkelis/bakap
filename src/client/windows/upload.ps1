@@ -172,9 +172,9 @@ bye
   if ($Debug.IsPresent) {
     $logFile = [System.IO.Path]::GetTempFileName()
     if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
-      & $pscp -r -pw $Password $LocalPath "$Username@$Server:$DestPath" *>&1 | Tee-Object -FilePath $logFile
+      & $pscp -r -pw $Password $LocalPath "$Username@$Server:$DestPath" 2>&1 | Tee-Object -FilePath $logFile
     } else {
-      & $pscp -pw $Password $LocalPath "$Username@$Server:$DestPath" *>&1 | Tee-Object -FilePath $logFile
+      & $pscp -pw $Password $LocalPath "$Username@$Server:$DestPath" 2>&1 | Tee-Object -FilePath $logFile
     }
     $rc = $LASTEXITCODE
     Write-Host "pscp debug log: $logFile"
