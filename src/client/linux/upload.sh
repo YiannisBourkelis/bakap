@@ -28,16 +28,22 @@ Notes:
 
 Options:
     --debug    Run lftp with debugging enabled and save raw output to /tmp/bakap-upload-debug-<ts>.log
+    --force    Force upload: overwrite existing remote files (mirror --overwrite)
 EOF
 }
 
 # Support an optional --debug flag anywhere in the args. If present, remove it from
 # positional arguments and enable debug mode.
 DEBUG=0
+FORCE=0
 newargs=()
 for _a in "$@"; do
     if [ "$_a" = "--debug" ]; then
         DEBUG=1
+        continue
+    fi
+    if [ "$_a" = "--force" ]; then
+        FORCE=1
         continue
     fi
     newargs+=("$_a")
@@ -72,6 +78,12 @@ if [ "$DEBUG" -eq 1 ]; then
     DEBUG_OUT="/tmp/bakap-upload-debug-$(date +%s).log"
     echo "Debug mode: raw lftp output will be saved to $DEBUG_OUT"
     : >"$DEBUG_OUT" || true
+fi
+
+# Mirror options (add --overwrite when forced)
+MIRROR_OPTS="--verbose --continue --parallel=2"
+if [ "$FORCE" -eq 1 ]; then
+    MIRROR_OPTS="$MIRROR_OPTS --overwrite"
 fi
 
 if [ ! -e "$LOCAL_PATH" ]; then
@@ -191,13 +203,13 @@ if command -v lftp >/dev/null 2>&1; then
             TARGET="$PARENT_DIR/$BASENAME"
             # ensure parent exists
             lftp -u "$USERNAME","$PASSWORD" sftp://$DEFAULT_SERVER -e "mkdir -p \"$PARENT_DIR\"; bye" >/dev/null 2>&1 || true
-            run_lftp sftp://$DEFAULT_SERVER "mirror -R --verbose --continue --parallel=2 \"$LOCAL_PATH\" \"$TARGET\"; bye"
+            run_lftp sftp://$DEFAULT_SERVER "mirror -R $MIRROR_OPTS \"$LOCAL_PATH\" \"$TARGET\"; bye"
         else
             # missing or dir -> ensure directory exists then mirror
             if [ "$REMOTE_TYPE" = "missing" ]; then
                 run_lftp sftp://$DEFAULT_SERVER "mkdir -p \"$DEST_PATH\"; bye" >/dev/null 2>&1 || true
             fi
-            run_lftp sftp://$DEFAULT_SERVER "mirror -R --verbose --continue --parallel=2 \"$LOCAL_PATH\" \"$DEST_PATH\"; bye"
+            run_lftp sftp://$DEFAULT_SERVER "mirror -R $MIRROR_OPTS \"$LOCAL_PATH\" \"$DEST_PATH\"; bye"
         fi
     else
         # single file upload: ensure remote dir exists and upload file
@@ -206,6 +218,10 @@ if command -v lftp >/dev/null 2>&1; then
         remote_path_type "$REMOTE_DIR"
         if [ "$REMOTE_TYPE" = "file" ]; then
             # remote path is a file name; overwrite it
+            if [ "$FORCE" -eq 1 ]; then
+                # attempt to remove remote file first (ignore errors)
+                run_lftp sftp://$DEFAULT_SERVER "rm \"$REMOTE_DIR\"; bye" >/dev/null 2>&1 || true
+            fi
             run_lftp sftp://$DEFAULT_SERVER "put -O \"$(dirname "$REMOTE_DIR")\" \"$LOCAL_PATH\"; bye"
         else
             if [ "$REMOTE_TYPE" = "missing" ]; then
