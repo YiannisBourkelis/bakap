@@ -106,7 +106,7 @@ while read path event; do
     fi
     # wait a short moment to let other file operations settle
     sleep "$SLEEP_SECONDS"
-    timestamp=$(date +%Y%m%d%H%M%S)
+    timestamp=$(date +%Y-%m-%d_%H-%M-%S)
     snapshot_dir="/home/$user/versions/$timestamp"
     mkdir -p "$snapshot_dir"
 

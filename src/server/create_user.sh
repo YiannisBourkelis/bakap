@@ -66,24 +66,4 @@ echo "User $USERNAME created successfully."
 echo "Upload directory: /home/$USERNAME/uploads"
 echo "Versions directory: /home/$USERNAME/versions (read-only for user)"
 echo "Password: $PASSWORD"
-echo "Snapshots are created in real-time on file changes."
-
-# Create an initial one-shot snapshot so the user has a starting point
-timestamp=$(date +%Y%m%d%H%M%S)
-snapshot_dir="/home/$USERNAME/versions/$timestamp"
-mkdir -p "$snapshot_dir"
-latest_snapshot=$(ls -d /home/$USERNAME/versions/* 2>/dev/null | sort | tail -1)
-if [ -n "$latest_snapshot" ] && [ "$latest_snapshot" != "$snapshot_dir" ]; then
-    rsync -a --link-dest="$latest_snapshot" "/home/$USERNAME/uploads/" "$snapshot_dir/"
-else
-    rsync -a "/home/$USERNAME/uploads/" "$snapshot_dir/"
-fi
-chown -R root:root "$snapshot_dir" || true
-chmod -R 755 "$snapshot_dir" || true
-
-# Log creation to monitor log if it exists
-if [ -w /var/log/backup_monitor.log ] || [ -w /var/log ]; then
-    echo "$(date '+%F %T') Initial snapshot created for $USERNAME at $timestamp" >> /var/log/backup_monitor.log 2>/dev/null || true
-fi
-
-echo "Initial snapshot created: $snapshot_dir"
+echo "Snapshots will be created automatically on file uploads via inotify monitoring."
