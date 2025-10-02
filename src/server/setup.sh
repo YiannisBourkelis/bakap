@@ -22,17 +22,35 @@ groupadd -f backupusers
 
 # Configure SSH
 echo "Configuring SSH..."
-sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
-sed -i 's/#Subsystem sftp /Subsystem sftp /' /etc/ssh/sshd_config
-echo "Subsystem sftp internal-sftp" >> /etc/ssh/sshd_config
 
-# Add group for chroot
-echo "Match Group backupusers" >> /etc/ssh/sshd_config
-echo "    ChrootDirectory %h" >> /etc/ssh/sshd_config
-echo "    ForceCommand internal-sftp" >> /etc/ssh/sshd_config
-echo "    AllowTcpForwarding no" >> /etc/ssh/sshd_config
-echo "    X11Forwarding no" >> /etc/ssh/sshd_config
+# Only modify if not already set
+if ! grep -q "^PermitRootLogin no" /etc/ssh/sshd_config; then
+    sed -i 's/#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+    echo "  - Set PermitRootLogin to no"
+fi
+
+if ! grep -q "^PasswordAuthentication yes" /etc/ssh/sshd_config; then
+    sed -i 's/#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    echo "  - Enabled PasswordAuthentication"
+fi
+
+# Enable internal-sftp subsystem (check if already configured)
+if ! grep -q "Subsystem sftp internal-sftp" /etc/ssh/sshd_config; then
+    sed -i 's/#*Subsystem sftp.*/Subsystem sftp internal-sftp/' /etc/ssh/sshd_config
+    echo "  - Configured internal-sftp subsystem"
+fi
+
+# Add group chroot configuration (only if not already present)
+if ! grep -q "Match Group backupusers" /etc/ssh/sshd_config; then
+    echo "" >> /etc/ssh/sshd_config
+    echo "# Bakap backup users configuration" >> /etc/ssh/sshd_config
+    echo "Match Group backupusers" >> /etc/ssh/sshd_config
+    echo "    ChrootDirectory %h" >> /etc/ssh/sshd_config
+    echo "    ForceCommand internal-sftp" >> /etc/ssh/sshd_config
+    echo "    AllowTcpForwarding no" >> /etc/ssh/sshd_config
+    echo "    X11Forwarding no" >> /etc/ssh/sshd_config
+    echo "  - Added backupusers chroot configuration"
+fi
 
 # Restart SSH
 echo "Restarting SSH service..."
@@ -45,9 +63,8 @@ systemctl restart ssh
 echo "Creating base directories..."
 mkdir -p /var/backups/scripts
 
-echo "Creating monitor script..."
 # Create monitor script for real-time incremental snapshots
-echo "Creating monitor script..."
+echo "Creating/updating monitor script..."
 cat > /var/backups/scripts/monitor_backups.sh <<'EOF'
 #!/bin/bash
 # Real-time monitor script for user backups
@@ -59,8 +76,11 @@ touch "$LOG"
 chown root:adm "$LOG" 2>/dev/null || true
 chmod 640 "$LOG" 2>/dev/null || true
 
-# Watch /home recursively and react to close_write/moved_to/create events
-inotifywait -m -r /home -e close_write -e moved_to -e create --format '%w%f %e' |
+# Watch /home recursively and react to close_write and moved_to events only
+# close_write: fired when a file is written and closed (upload complete)
+# moved_to: fired when a file is moved into the directory
+# We deliberately exclude 'create' to avoid snapshotting partial files during long uploads
+inotifywait -m -r /home -e close_write -e moved_to --format '%w%f %e' |
 while read path event; do
     # Only handle events that happen inside an uploads directory
     case "$path" in
@@ -83,11 +103,14 @@ while read path event; do
     fi
 
     # Debounce: avoid creating multiple snapshots for rapidly repeated events
-    # Configurable via environment variables when running the monitor
-    # BAKAP_DEBOUNCE_SECONDS - time window to coalesce events (default 5)
-    # BAKAP_SNAPSHOT_DELAY - seconds to wait before snapshotting to let writes settle (default 3)
-    DEBOUNCE_SECONDS=${BAKAP_DEBOUNCE_SECONDS:-5}
-    SLEEP_SECONDS=${BAKAP_SNAPSHOT_DELAY:-3}
+    # Since we only watch close_write events, files are already fully written when we see them
+    # BAKAP_DEBOUNCE_SECONDS - time window to coalesce multiple file uploads (default 15)
+    #   If another file completes within this window, reset the timer
+    # BAKAP_SNAPSHOT_DELAY - additional seconds to wait after last close_write (default 10)
+    #   Ensures batch uploads (multiple files) are captured in one snapshot
+    # For very large batch uploads (100+ files), increase DEBOUNCE_SECONDS
+    DEBOUNCE_SECONDS=${BAKAP_DEBOUNCE_SECONDS:-15}
+    SLEEP_SECONDS=${BAKAP_SNAPSHOT_DELAY:-10}
     # Use a small per-user timestamp file in /var/run
     runstamp_dir=/var/run/bakap
     mkdir -p "$runstamp_dir"
@@ -128,9 +151,12 @@ EOF
 
 chmod +x /var/backups/scripts/monitor_backups.sh
 
-# Create systemd unit for the monitor
+# Create systemd unit for the monitor (preserve Environment variables if service exists)
 echo "Installing systemd unit for backup monitor..."
-cat > /etc/systemd/system/bakap-monitor.service <<'UNIT'
+if [ -f /etc/systemd/system/bakap-monitor.service ]; then
+    # Extract existing Environment variables
+    existing_env=$(grep "^Environment=" /etc/systemd/system/bakap-monitor.service 2>/dev/null || true)
+    cat > /etc/systemd/system/bakap-monitor.service <<'UNIT'
 [Unit]
 Description=Bakap real-time backup monitor
 After=network.target
@@ -144,15 +170,41 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
+    # Re-add any existing Environment variables
+    if [ -n "$existing_env" ]; then
+        # Insert Environment lines after [Service] line
+        sed -i "/^\[Service\]/a $existing_env" /etc/systemd/system/bakap-monitor.service
+        echo "  - Preserved existing environment variables"
+    fi
+else
+    cat > /etc/systemd/system/bakap-monitor.service <<'UNIT'
+[Unit]
+Description=Bakap real-time backup monitor
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /var/backups/scripts/monitor_backups.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+fi
 
 systemctl daemon-reload
 systemctl enable --now bakap-monitor.service
 
 # Tune inotify max_user_watches to support many users/directories
-echo "fs.inotify.max_user_watches=524288" > /etc/sysctl.d/99-bakap-inotify.conf
-sysctl --system >/dev/null 2>&1 || true
+if [ ! -f /etc/sysctl.d/99-bakap-inotify.conf ]; then
+    echo "Configuring inotify limits..."
+    echo "fs.inotify.max_user_watches=524288" > /etc/sysctl.d/99-bakap-inotify.conf
+    sysctl --system >/dev/null 2>&1 || true
+fi
 
 # Add logrotate config for the monitor log
+echo "Configuring log rotation..."
 cat > /etc/logrotate.d/bakap-monitor <<'LR'
 /var/log/backup_monitor.log {
     weekly
@@ -164,8 +216,10 @@ cat > /etc/logrotate.d/bakap-monitor <<'LR'
 }
 LR
 
-# Create retention policy configuration file
-cat > /etc/bakap-retention.conf <<'CONF'
+# Create retention policy configuration file (only if it doesn't exist)
+if [ ! -f /etc/bakap-retention.conf ]; then
+    echo "Creating retention policy configuration..."
+    cat > /etc/bakap-retention.conf <<'CONF'
 # Bakap Retention Policy Configuration
 # Edit this file to customize snapshot retention
 
@@ -195,8 +249,12 @@ KEEP_MONTHLY=6      # Keep last 6 monthly snapshots (one per month)
 # Run cleanup at this hour (0-23)
 CLEANUP_HOUR=3
 CONF
+else
+    echo "Retention policy configuration already exists, preserving existing settings"
+fi
 
-# Create cleanup script with configurable retention
+# Create/update cleanup script with configurable retention
+echo "Creating/updating cleanup script..."
 cat > /var/backups/scripts/cleanup_snapshots.sh <<'EOF'
 #!/bin/bash
 # Cleanup old snapshots based on retention policy
@@ -324,8 +382,27 @@ log_msg "Cleanup completed"
 EOF
 chmod +x /var/backups/scripts/cleanup_snapshots.sh
 
-# Install daily cron job for cleanup (run at configured hour)
-(crontab -l 2>/dev/null | grep -v cleanup_snapshots.sh; echo "0 3 * * * /var/backups/scripts/cleanup_snapshots.sh") | crontab -
+# Install daily cron job for cleanup (run at configured hour) - only if not already present
+if ! crontab -l 2>/dev/null | grep -q "cleanup_snapshots.sh"; then
+    echo "Installing cleanup cron job..."
+    (crontab -l 2>/dev/null; echo "0 3 * * * /var/backups/scripts/cleanup_snapshots.sh") | crontab -
+else
+    echo "Cleanup cron job already exists"
+fi
 
+echo ""
+echo "=========================================="
 echo "Setup complete!"
-echo "Use create_user.sh <username> to create backup users."
+echo "=========================================="
+echo ""
+echo "Next steps:"
+echo "  1. Create backup users: ./create_user.sh <username>"
+echo "  2. Monitor logs: tail -f /var/log/backup_monitor.log"
+echo "  3. Check service: systemctl status bakap-monitor.service"
+echo "  4. Manage users: ./manage_users.sh list"
+echo ""
+echo "Configuration files:"
+echo "  - Retention policy: /etc/bakap-retention.conf"
+echo "  - Monitor service: /etc/systemd/system/bakap-monitor.service"
+echo "  - Scripts: /var/backups/scripts/"
+echo ""
