@@ -3,6 +3,10 @@
 # setup.sh - Setup script for Debian backup server with versioning support
 # This script configures a Debian system to allow remote clients to upload files via SCP/SFTP
 # with automatic versioning for ransomware protection.
+#
+# Copyright (c) 2025 Yianni Bourkelis
+# Licensed under the MIT License - see LICENSE file for details
+# https://github.com/YiannisBourkelis/bakap
 
 set -e
 
@@ -69,6 +73,10 @@ cat > /var/backups/scripts/monitor_backups.sh <<'EOF'
 #!/bin/bash
 # Real-time monitor script for user backups
 # Watches /home and filters events under uploads/ so new users/uploads are picked up even after start
+#
+# Copyright (c) 2025 Yianni Bourkelis
+# Licensed under the MIT License - see LICENSE file for details
+# https://github.com/YiannisBourkelis/bakap
 
 LOG=/var/log/backup_monitor.log
 mkdir -p "$(dirname "$LOG")"
@@ -259,6 +267,10 @@ cat > /var/backups/scripts/cleanup_snapshots.sh <<'EOF'
 #!/bin/bash
 # Cleanup old snapshots based on retention policy
 # Configuration: /etc/bakap-retention.conf
+#
+# Copyright (c) 2025 Yianni Bourkelis
+# Licensed under the MIT License - see LICENSE file for details
+# https://github.com/YiannisBourkelis/bakap
 
 # Load configuration
 if [ -f /etc/bakap-retention.conf ]; then

@@ -2,6 +2,10 @@
 
 # create_user.sh - Create a backup user with secure password and versioning setup
 # Usage: ./create_user.sh <username>
+#
+# Copyright (c) 2025 Yianni Bourkelis
+# Licensed under the MIT License - see LICENSE file for details
+# https://github.com/YiannisBourkelis/bakap
 
 set -e
 

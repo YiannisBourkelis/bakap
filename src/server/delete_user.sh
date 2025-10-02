@@ -2,6 +2,10 @@
 
 # delete_user.sh - Delete a backup user and all their data
 # Usage: sudo ./delete_user.sh <username>
+#
+# Copyright (c) 2025 Yianni Bourkelis
+# Licensed under the MIT License - see LICENSE file for details
+# https://github.com/YiannisBourkelis/bakap
 
 set -e
 

@@ -3,6 +3,11 @@
   Upload a file or directory to the bakap SFTP server (Windows client).
 
 .DESCRIPTION
+  Bakap Windows Upload Client
+  Copyright (c) 2025 Yianni Bourkelis
+  Licensed under the MIT License - see LICENSE file for details
+  https://github.com/YiannisBourkelis/bakap
+  
   Compatible with Windows Server 2008 R2 and later (PowerShell 2.0+).
   Prefers WinSCP (WinSCP.com). If WinSCP is not installed, falls back to PuTTY's pscp.exe.
   By default, skips upload if the remote file exists and has the same SHA-256 hash (for single files).

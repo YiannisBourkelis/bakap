@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 # upload.sh - simple client uploader for bakap
+#
+# Copyright (c) 2025 Yianni Bourkelis
+# Licensed under the MIT License - see LICENSE file for details
+# https://github.com/YiannisBourkelis/bakap
 
 set -euo pipefail
 
 usage() {
         cat <<EOF
+Bakap Linux Upload Client
+Copyright (c) 2025 Yianni Bourkelis
+https://github.com/YiannisBourkelis/bakap
+
 Usage: $0 -l <local-path> -u <username> -p <password> -s <server> [OPTIONS]
 
 This script uploads a file or directory to the bakap server.

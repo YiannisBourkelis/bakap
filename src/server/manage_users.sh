@@ -2,6 +2,10 @@
 
 # manage_users.sh - Manage backup users, view stats, cleanup, and delete users
 # Usage: ./manage_users.sh [command] [options]
+#
+# Copyright (c) 2025 Yianni Bourkelis
+# Licensed under the MIT License - see LICENSE file for details
+# https://github.com/YiannisBourkelis/bakap
 
 set -e
 
@@ -9,6 +13,10 @@ SCRIPT_NAME=$(basename "$0")
 
 usage() {
     cat <<EOF
+Bakap User Management Tool
+Copyright (c) 2025 Yianni Bourkelis
+https://github.com/YiannisBourkelis/bakap
+
 Usage: $SCRIPT_NAME <command> [options]
 
 Commands:
