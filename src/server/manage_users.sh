@@ -53,7 +53,21 @@ check_root() {
 
 # Get list of backup users (members of backupusers group)
 get_backup_users() {
-    getent group backupusers 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -v '^$'
+    # Get the GID of backupusers group
+    local gid=$(getent group backupusers 2>/dev/null | cut -d: -f3)
+    if [ -z "$gid" ]; then
+        return
+    fi
+    
+    # Find users with backupusers as primary group (from /etc/passwd)
+    # Format: username:x:uid:gid:...
+    local primary_users=$(getent passwd | awk -F: -v gid="$gid" '$4 == gid {print $1}')
+    
+    # Find users with backupusers as supplementary group
+    local supp_users=$(getent group backupusers 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -v '^$')
+    
+    # Combine and deduplicate
+    echo -e "${primary_users}\n${supp_users}" | grep -v '^$' | sort -u
 }
 
 # Calculate actual disk usage (counting hardlinks only once)
