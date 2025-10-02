@@ -164,16 +164,168 @@ cat > /etc/logrotate.d/bakap-monitor <<'LR'
 }
 LR
 
-# Create cleanup script to remove snapshots older than 30 days
+# Create retention policy configuration file
+cat > /etc/bakap-retention.conf <<'CONF'
+# Bakap Retention Policy Configuration
+# Edit this file to customize snapshot retention
+
+# Default retention mode: advanced (recommended)
+# Set to 'false' to use simple age-based retention
+ENABLE_ADVANCED_RETENTION=true
+
+# Simple age-based retention (days) - used when ENABLE_ADVANCED_RETENTION=false
+# Snapshots older than this will be deleted
+RETENTION_DAYS=30
+
+# Advanced retention policy (Grandfather-Father-Son strategy)
+# Keep: last N daily, last M weekly, last Y monthly snapshots
+KEEP_DAILY=7        # Keep last 7 daily snapshots
+KEEP_WEEKLY=4       # Keep last 4 weekly snapshots (one per week)
+KEEP_MONTHLY=6      # Keep last 6 monthly snapshots (one per month)
+
+# Per-user overrides (optional)
+# Format: USERNAME_KEEP_DAILY=N, USERNAME_KEEP_WEEKLY=M, USERNAME_KEEP_MONTHLY=Y
+# Example:
+#   produser_KEEP_DAILY=30
+#   produser_KEEP_WEEKLY=12
+#   produser_KEEP_MONTHLY=24
+#   testuser_RETENTION_DAYS=7
+#   testuser_ENABLE_ADVANCED_RETENTION=false
+
+# Run cleanup at this hour (0-23)
+CLEANUP_HOUR=3
+CONF
+
+# Create cleanup script with configurable retention
 cat > /var/backups/scripts/cleanup_snapshots.sh <<'EOF'
 #!/bin/bash
-# Delete user snapshot directories older than 30 days
-find /home -mindepth 2 -maxdepth 3 -type d -path '*/versions/*' -mtime +30 -print0 | xargs -0 -r rm -rf
+# Cleanup old snapshots based on retention policy
+# Configuration: /etc/bakap-retention.conf
+
+# Load configuration
+if [ -f /etc/bakap-retention.conf ]; then
+    source /etc/bakap-retention.conf
+else
+    # Defaults if config file is missing
+    RETENTION_DAYS=30
+    ENABLE_ADVANCED_RETENTION=false
+fi
+
+LOG=/var/log/backup_monitor.log
+
+log_msg() {
+    echo "$(date '+%F %T') [CLEANUP] $*" >> "$LOG"
+}
+
+# Simple age-based cleanup
+cleanup_by_age() {
+    log_msg "Running age-based cleanup (keeping last $RETENTION_DAYS days)"
+    local count=0
+    while IFS= read -r -d '' snapshot; do
+        rm -rf "$snapshot"
+        count=$((count + 1))
+    done < <(find /home -mindepth 2 -maxdepth 3 -type d -path '*/versions/*' -mtime +$RETENTION_DAYS -print0 2>/dev/null)
+    log_msg "Removed $count snapshots older than $RETENTION_DAYS days"
+}
+
+# Advanced retention: keep daily, weekly, monthly snapshots
+cleanup_advanced() {
+    log_msg "Running advanced retention cleanup (default: daily=$KEEP_DAILY, weekly=$KEEP_WEEKLY, monthly=$KEEP_MONTHLY)"
+    
+    # Get list of backup users
+    local users=$(getent group backupusers 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -v '^$')
+    
+    while IFS= read -r user; do
+        [ -z "$user" ] && continue
+        local versions_dir="/home/$user/versions"
+        [ ! -d "$versions_dir" ] && continue
+        
+        # Check for per-user retention settings
+        local user_daily_var="${user}_KEEP_DAILY"
+        local user_weekly_var="${user}_KEEP_WEEKLY"
+        local user_monthly_var="${user}_KEEP_MONTHLY"
+        local user_daily=${!user_daily_var:-$KEEP_DAILY}
+        local user_weekly=${!user_weekly_var:-$KEEP_WEEKLY}
+        local user_monthly=${!user_monthly_var:-$KEEP_MONTHLY}
+        
+        if [ "$user_daily" != "$KEEP_DAILY" ] || [ "$user_weekly" != "$KEEP_WEEKLY" ] || [ "$user_monthly" != "$KEEP_MONTHLY" ]; then
+            log_msg "User $user: using custom retention (daily=$user_daily, weekly=$user_weekly, monthly=$user_monthly)"
+        fi
+        
+        # Get all snapshots sorted by date (newest first)
+        local snapshots=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r)
+        [ -z "$snapshots" ] && continue
+        
+        # Arrays to track what to keep
+        declare -A keep_snapshots
+        local snapshot_array=()
+        while IFS= read -r s; do
+            [ -n "$s" ] && snapshot_array+=("$s")
+        done <<< "$snapshots"
+        
+        # Keep last N daily snapshots
+        local daily_count=0
+        for snapshot in "${snapshot_array[@]}"; do
+            [ $daily_count -ge $user_daily ] && break
+            keep_snapshots["$snapshot"]=1
+            daily_count=$((daily_count + 1))
+        done
+        
+        # Keep last N weekly snapshots (one per week)
+        local weekly_count=0
+        local last_week=""
+        for snapshot in "${snapshot_array[@]}"; do
+            [ $weekly_count -ge $user_weekly ] && break
+            # Extract date from snapshot name (format: YYYY-MM-DD_HH-MM-SS)
+            local snap_date=$(basename "$snapshot" | cut -d_ -f1)
+            local week=$(date -d "$snap_date" +%Y-W%U 2>/dev/null || echo "")
+            if [ -n "$week" ] && [ "$week" != "$last_week" ]; then
+                keep_snapshots["$snapshot"]=1
+                last_week="$week"
+                weekly_count=$((weekly_count + 1))
+            fi
+        done
+        
+        # Keep last N monthly snapshots (one per month)
+        local monthly_count=0
+        local last_month=""
+        for snapshot in "${snapshot_array[@]}"; do
+            [ $monthly_count -ge $user_monthly ] && break
+            local snap_date=$(basename "$snapshot" | cut -d_ -f1)
+            local month=$(date -d "$snap_date" +%Y-%m 2>/dev/null || echo "")
+            if [ -n "$month" ] && [ "$month" != "$last_month" ]; then
+                keep_snapshots["$snapshot"]=1
+                last_month="$month"
+                monthly_count=$((monthly_count + 1))
+            fi
+        done
+        
+        # Remove snapshots not in keep list
+        local removed=0
+        for snapshot in "${snapshot_array[@]}"; do
+            if [ -z "${keep_snapshots[$snapshot]}" ]; then
+                rm -rf "$snapshot"
+                removed=$((removed + 1))
+            fi
+        done
+        
+        [ $removed -gt 0 ] && log_msg "User $user: removed $removed snapshots"
+    done
+}
+
+# Main cleanup logic
+if [ "$ENABLE_ADVANCED_RETENTION" = "true" ]; then
+    cleanup_advanced
+else
+    cleanup_by_age
+fi
+
+log_msg "Cleanup completed"
 EOF
 chmod +x /var/backups/scripts/cleanup_snapshots.sh
 
-# Install daily cron job for cleanup (run at 03:00)
-(crontab -l 2>/dev/null; echo "0 3 * * * /var/backups/scripts/cleanup_snapshots.sh") | crontab -
+# Install daily cron job for cleanup (run at configured hour)
+(crontab -l 2>/dev/null | grep -v cleanup_snapshots.sh; echo "0 3 * * * /var/backups/scripts/cleanup_snapshots.sh") | crontab -
 
 echo "Setup complete!"
 echo "Use create_user.sh <username> to create backup users."
