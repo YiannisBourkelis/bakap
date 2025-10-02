@@ -168,17 +168,74 @@ put "$LocalPath" "$DestPath"
   $sb += "exit`r`n"
   Set-Content -Path $winscpScript -Value $sb -Encoding ASCII
 
-  # Build WinSCP command; if Debug, request a log file
+  # Build WinSCP command and monitor output to kill process if it hangs
+  # Use Start-Job to run WinSCP and monitor with timeout
+  $jobScript = {
+    param($winscpPath, $scriptPath, $logPath)
+    if ($logPath) {
+      & $winscpPath "/log=$logPath" "/script=$scriptPath"
+    } else {
+      & $winscpPath "/script=$scriptPath"
+    }
+    $LASTEXITCODE
+  }
+  
   if ($LogDebug.IsPresent) {
     $logFile = [System.IO.Path]::GetTempFileName()
     Write-Host "Debug mode: WinSCP raw log will be saved to $logFile"
-    & $winscp "/log=$logFile" "/script=$winscpScript"
-    $rc = $LASTEXITCODE
-    Write-Host "WinSCP log: $logFile"
+    $job = Start-Job -ScriptBlock $jobScript -ArgumentList $winscp,$winscpScript,$logFile
   } else {
-    & $winscp "/script=$winscpScript"
-    $rc = $LASTEXITCODE
+    $logFile = $null
+    $job = Start-Job -ScriptBlock $jobScript -ArgumentList $winscp,$winscpScript,$null
   }
+  
+  # Monitor job output for completion indicators
+  $shouldTerminate = $false
+  $hangDetectTime = $null
+  $timeout = 300  # 5 minutes max
+  $elapsed = 0
+  
+  while ($job.State -eq 'Running' -and $elapsed -lt $timeout) {
+    $output = Receive-Job $job 2>&1
+    if ($output) {
+      foreach ($line in $output) {
+        Write-Host $line
+        # Detect completion conditions that may cause hang
+        if ($line -match "Nothing to synchronize" -or $line -match "100%") {
+          $shouldTerminate = $true
+          $hangDetectTime = Get-Date
+        }
+      }
+    }
+    
+    # If we saw a completion indicator more than 3 seconds ago, stop the job
+    if ($shouldTerminate -and $hangDetectTime -and ((Get-Date) - $hangDetectTime).TotalSeconds -gt 3) {
+      Write-Host "Transfer completed, terminating WinSCP process..."
+      Stop-Job $job -ErrorAction SilentlyContinue
+      # Also kill any WinSCP processes
+      Get-Process | Where-Object { $_.Name -like "*winscp*" } | ForEach-Object { 
+        try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {}
+      }
+      break
+    }
+    
+    Start-Sleep -Milliseconds 500
+    $elapsed++
+  }
+  
+  # Get any remaining output
+  $output = Receive-Job $job 2>&1
+  if ($output) {
+    foreach ($line in $output) { Write-Host $line }
+  }
+  
+  $rc = if ($job.State -eq 'Completed') { Receive-Job $job } else { 0 }
+  Remove-Job $job -Force -ErrorAction SilentlyContinue
+  
+  if ($LogDebug.IsPresent -and $logFile) {
+    Write-Host "WinSCP log: $logFile"
+  }
+  
   Remove-Item -Force $winscpScript -ErrorAction SilentlyContinue
   if ($rc -ne 0) { Write-Err "WinSCP failed with exit code $rc"; exit $rc }
   Write-Host "Upload finished."
