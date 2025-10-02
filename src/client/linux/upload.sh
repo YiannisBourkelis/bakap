@@ -1,69 +1,103 @@
 #!/usr/bin/env bash
 # upload.sh - simple client uploader for bakap
-# Placeholders / CLI args:
-# 1) local path (file or directory)
-# 2) username
-# 3) password
-# 4) destination path relative to user's chroot (e.g. uploads/ or uploads/subdir)
 
 set -euo pipefail
 
-DEFAULT_SERVER="202.61.225.34"
-
 usage() {
         cat <<EOF
-Usage: $0 <local-path> <username> <password> [dest-path] [expected-host-fingerprint]
+Usage: $0 -l <local-path> -u <username> -p <password> -s <server> [OPTIONS]
 
-This script uploads a file or directory to the bakap server ($DEFAULT_SERVER).
+This script uploads a file or directory to the bakap server.
 It prefers lftp (shows progress). If lftp is not installed it falls back to sshpass+sftp.
 
+Required arguments:
+    -l, --local-path PATH    Local file or directory to upload
+    -u, --username USER      Remote username
+    -p, --password PASS      Password for the user
+    -s, --server HOST        SFTP server hostname or IP address
+
+Optional arguments:
+    -d, --dest-path PATH     Destination path relative to user's chroot (default: uploads/)
+    -f, --fingerprint FP     Expected host fingerprint (optional)
+    --debug                  Run lftp with debugging enabled
+    --force                  Force upload: overwrite existing remote files
+    -h, --help               Show this help message
+
 Examples:
-    $0 /path/to/file.sql.gz test2 'P@ssw0rd' uploads/
-    $0 /path/to/folder test2 'P@ssw0rd' uploads/backups/ SHA256:abcdef...
+    $0 -l /path/to/file.sql.gz -u test2 -p 'P@ssw0rd' -s 202.61.225.34
+    $0 -l /path/to/folder -u test2 -p 'P@ssw0rd' -s 192.168.1.100 -d uploads/backups/ -f SHA256:abcdef... --force
 
 Notes:
 - The password will appear in the process list while the command runs when using sshpass. Prefer SSH keys.
 - The destination path is relative to the user's chroot (most installs use uploads/).
 - If provided, expected-host-fingerprint will be compared to the server's SSH key fingerprint before adding it to your known_hosts.
-
-Options:
-    --debug    Run lftp with debugging enabled and save raw output to /tmp/bakap-upload-debug-<ts>.log
-    --force    Force upload: overwrite existing remote files (mirror --overwrite)
 EOF
 }
 
-# Support an optional --debug flag anywhere in the args. If present, remove it from
-# positional arguments and enable debug mode.
+# Initialize variables
+LOCAL_PATH=""
+USERNAME=""
+PASSWORD=""
+DEST_PATH="uploads/"
+EXPECTED_FP=""
+SERVER=""
 DEBUG=0
 FORCE=0
-newargs=()
-for _a in "$@"; do
-    if [ "$_a" = "--debug" ]; then
-        DEBUG=1
-        continue
-    fi
-    if [ "$_a" = "--force" ]; then
-        FORCE=1
-        continue
-    fi
-    newargs+=("$_a")
-done
-# Reset positional parameters to the filtered list
-if [ ${#newargs[@]} -gt 0 ]; then
-    set -- "${newargs[@]}"
-else
-    set --
-fi
 
-if [ "$#" -lt 3 ]; then
+# Parse command line options
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -l|--local-path)
+            LOCAL_PATH="$2"
+            shift 2
+            ;;
+        -u|--username)
+            USERNAME="$2"
+            shift 2
+            ;;
+        -p|--password)
+            PASSWORD="$2"
+            shift 2
+            ;;
+        -d|--dest-path)
+            DEST_PATH="$2"
+            shift 2
+            ;;
+        -f|--fingerprint)
+            EXPECTED_FP="$2"
+            shift 2
+            ;;
+        -s|--server)
+            SERVER="$2"
+            shift 2
+            ;;
+        --debug)
+            DEBUG=1
+            shift
+            ;;
+        --force)
+            FORCE=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage
+            exit 2
+            ;;
+    esac
+done
+
+# Check required parameters
+if [[ -z "$LOCAL_PATH" || -z "$USERNAME" || -z "$PASSWORD" || -z "$SERVER" ]]; then
+    echo "Error: Missing required arguments" >&2
     usage
     exit 2
 fi
 
-LOCAL_PATH=$1
-USERNAME=$2
-PASSWORD=$3
-DEST_PATH=${4:-uploads/}
 # Normalize destination path: remove leading slash so paths are always relative
 # to the user's chroot (some clients/servers treat leading slash as absolute
 # and that can cause permission failures). Also ensure non-empty.
@@ -71,7 +105,6 @@ DEST_PATH="${DEST_PATH#/}"
 if [ -z "$DEST_PATH" ]; then
     DEST_PATH="uploads"
 fi
-EXPECTED_FP=${5:-}
 
 # If debugging enabled, prepare a debug output file
 if [ "$DEBUG" -eq 1 ]; then
@@ -91,7 +124,7 @@ if [ ! -e "$LOCAL_PATH" ]; then
     exit 3
 fi
 
-echo "Uploading '$LOCAL_PATH' as user '$USERNAME' to $DEFAULT_SERVER:$DEST_PATH"
+echo "Uploading '$LOCAL_PATH' as user '$USERNAME' to $SERVER:$DEST_PATH"
 
 # Ensure ~/.ssh exists for current user and known_hosts is present
 SSH_DIR="$HOME/.ssh"
@@ -104,16 +137,16 @@ chmod 600 "$KNOWN_HOSTS" || true
 # Helper: ensure server host key is in known_hosts. If EXPECTED_FP is provided, compare.
 ensure_host_key() {
     # If host already in known_hosts, nothing to do
-    if ssh-keygen -F "$DEFAULT_SERVER" -f "$KNOWN_HOSTS" >/dev/null 2>&1; then
+    if ssh-keygen -F "$SERVER" -f "$KNOWN_HOSTS" >/dev/null 2>&1; then
         return 0
     fi
 
     # Fetch host keys
-    echo "Fetching host keys for $DEFAULT_SERVER..."
+    echo "Fetching host keys for $SERVER..."
     tmp=$(mktemp)
-    ssh-keyscan -t rsa,ecdsa,ed25519 "$DEFAULT_SERVER" > "$tmp" 2>/dev/null || true
+    ssh-keyscan -t rsa,ecdsa,ed25519 "$SERVER" > "$tmp" 2>/dev/null || true
     if [ ! -s "$tmp" ]; then
-        echo "Failed to fetch host keys for $DEFAULT_SERVER" >&2
+        echo "Failed to fetch host keys for $SERVER" >&2
         rm -f "$tmp"
         return 1
     fi
@@ -142,7 +175,7 @@ ensure_host_key() {
     # Append fetched keys to known_hosts
     cat "$tmp" >> "$KNOWN_HOSTS"
     rm -f "$tmp"
-    echo "Added $DEFAULT_SERVER host key to $KNOWN_HOSTS"
+    echo "Added $SERVER host key to $KNOWN_HOSTS"
     return 0
 }
 
@@ -179,14 +212,21 @@ if command -v lftp >/dev/null 2>&1; then
     remote_path_type() {
         REMOTE_TYPE="missing"
         tmp=$(mktemp)
-        # use run_lftp to get listing (filtered)
-        run_lftp sftp://$DEFAULT_SERVER "cls -l \"$1\"; bye" >"$tmp" 2>/dev/null || true
-        if [ -s "$tmp" ]; then
-            firstchar=$(cut -c1 "$tmp" | head -n1 2>/dev/null || echo "")
-            if [ "$firstchar" = "d" ]; then
-                REMOTE_TYPE="dir"
-            else
+        # Try to cd into the path - if it succeeds, it's a directory
+        if run_lftp sftp://$SERVER "cd \"$1\"; bye" >"$tmp" 2>&1; then
+            REMOTE_TYPE="dir"
+        else
+            # Check if it exists as a file using cls
+            run_lftp sftp://$SERVER "cls -l \"$1\"; bye" >"$tmp" 2>/dev/null || true
+            if [ -s "$tmp" ]; then
                 REMOTE_TYPE="file"
+            fi
+        fi
+        if [ "$DEBUG" -eq 1 ]; then
+            echo "DEBUG: remote_path_type('$1') = $REMOTE_TYPE (cd test)" >&2
+            if [ -s "$tmp" ]; then
+                echo "DEBUG: Test output:" >&2
+                cat "$tmp" >&2
             fi
         fi
         rm -f "$tmp"
@@ -194,25 +234,69 @@ if command -v lftp >/dev/null 2>&1; then
 
     # lftp: for directories use mirror -R, for files use put
     if [ -d "$LOCAL_PATH" ]; then
+        # Get absolute path of local directory to avoid any path resolution issues
+        # Use -P to avoid resolving symlinks to keep the original basename
+        LOCAL_ABS=$(cd "$(dirname "$LOCAL_PATH")" && pwd -P)/$(basename "$LOCAL_PATH")
+        # Remove trailing slash if present
+        LOCAL_ABS="${LOCAL_ABS%/}"
+        LOCAL_PARENT=$(dirname "$LOCAL_ABS")
+        BASENAME=$(basename "$LOCAL_ABS")
+        
+        if [ "$DEBUG" -eq 1 ]; then
+            echo "DEBUG: LOCAL_PATH=$LOCAL_PATH" >&2
+            echo "DEBUG: LOCAL_ABS=$LOCAL_ABS" >&2
+            echo "DEBUG: LOCAL_PARENT=$LOCAL_PARENT" >&2
+            echo "DEBUG: BASENAME=$BASENAME" >&2
+            echo "DEBUG: DEST_PATH=$DEST_PATH" >&2
+        fi
+        
         # inspect remote path
         remote_path_type "$DEST_PATH"
         if [ "$REMOTE_TYPE" = "file" ]; then
-            # remote path is a file; upload into its parent as a directory to avoid mkdir errors
+            # remote path is a file; create a directory with the source dir name in its parent
             PARENT_DIR=$(dirname "$DEST_PATH")
-            BASENAME=$(basename "$LOCAL_PATH")
             TARGET="$PARENT_DIR/$BASENAME"
             # ensure parent exists
-            lftp -u "$USERNAME","$PASSWORD" sftp://$DEFAULT_SERVER -e "mkdir -p \"$PARENT_DIR\"; bye" >/dev/null 2>&1 || true
-            run_lftp sftp://$DEFAULT_SERVER "mirror -R $MIRROR_OPTS \"$LOCAL_PATH\" \"$TARGET\"; bye"
+            lftp -u "$USERNAME","$PASSWORD" sftp://$SERVER -e "mkdir -p \"$PARENT_DIR\"; bye" >/dev/null 2>&1 || true
+            # Mirror directory contents into the target
+            LFTP_CMD="lcd \"$LOCAL_ABS\"; cd \"$TARGET\"; mkdir -p .; mirror -R $MIRROR_OPTS . .; bye"
+            if [ "$DEBUG" -eq 1 ]; then
+                echo "DEBUG: LFTP_CMD=$LFTP_CMD" >&2
+            fi
+            run_lftp sftp://$SERVER "$LFTP_CMD"
         else
             # missing or dir -> ensure directory exists then mirror
             if [ "$REMOTE_TYPE" = "missing" ]; then
-                run_lftp sftp://$DEFAULT_SERVER "mkdir -p \"$DEST_PATH\"; bye" >/dev/null 2>&1 || true
+                run_lftp sftp://$SERVER "mkdir -p \"$DEST_PATH\"; bye" >/dev/null 2>&1 || true
             fi
-            run_lftp sftp://$DEFAULT_SERVER "mirror -R $MIRROR_OPTS \"$LOCAL_PATH\" \"$DEST_PATH\"; bye"
+            # Mirror directory contents into the destination
+            # Use lcd to enter the source directory, then mirror its contents
+            if [ "$DEBUG" -eq 1 ]; then
+                echo "DEBUG: About to mirror - DEST_PATH='$DEST_PATH' BASENAME='$BASENAME'" >&2
+                echo "DEBUG: REMOTE_TYPE='$REMOTE_TYPE'" >&2
+            fi
+            LFTP_CMD="lcd \"$LOCAL_ABS\"; cd \"$DEST_PATH\"; mirror -R $MIRROR_OPTS . .; bye"
+            if [ "$DEBUG" -eq 1 ]; then
+                echo "DEBUG: LFTP_CMD=$LFTP_CMD" >&2
+            fi
+            run_lftp sftp://$SERVER "$LFTP_CMD"
         fi
     else
         # single file upload: ensure remote dir exists and upload file
+        # Get absolute path of local file to avoid any path resolution issues
+        # Use -P to avoid resolving symlinks
+        LOCAL_ABS=$(cd "$(dirname "$LOCAL_PATH")" && pwd -P)/$(basename "$LOCAL_PATH")
+        LOCAL_PARENT=$(dirname "$LOCAL_ABS")
+        BASENAME=$(basename "$LOCAL_ABS")
+        
+        if [ "$DEBUG" -eq 1 ]; then
+            echo "DEBUG: LOCAL_PATH=$LOCAL_PATH" >&2
+            echo "DEBUG: LOCAL_ABS=$LOCAL_ABS" >&2
+            echo "DEBUG: LOCAL_PARENT=$LOCAL_PARENT" >&2
+            echo "DEBUG: BASENAME=$BASENAME" >&2
+            echo "DEBUG: DEST_PATH=$DEST_PATH" >&2
+        fi
+        
         REMOTE_DIR="$DEST_PATH"
         # inspect remote path
         remote_path_type "$REMOTE_DIR"
@@ -220,15 +304,24 @@ if command -v lftp >/dev/null 2>&1; then
             # remote path is a file name; overwrite it
             if [ "$FORCE" -eq 1 ]; then
                 # attempt to remove remote file first (ignore errors)
-                run_lftp sftp://$DEFAULT_SERVER "rm \"$REMOTE_DIR\"; bye" >/dev/null 2>&1 || true
+                run_lftp sftp://$SERVER "rm \"$REMOTE_DIR\"; bye" >/dev/null 2>&1 || true
             fi
-            run_lftp sftp://$DEFAULT_SERVER "put -O \"$(dirname "$REMOTE_DIR")\" \"$LOCAL_PATH\"; bye"
+            # Use lcd/cd approach for clarity
+            LFTP_CMD="lcd \"$LOCAL_PARENT\"; cd \"$(dirname "$REMOTE_DIR")\"; put \"$BASENAME\"; bye"
+            if [ "$DEBUG" -eq 1 ]; then
+                echo "DEBUG: LFTP_CMD=$LFTP_CMD" >&2
+            fi
+            run_lftp sftp://$SERVER "$LFTP_CMD"
         else
             if [ "$REMOTE_TYPE" = "missing" ]; then
-                run_lftp sftp://$DEFAULT_SERVER "mkdir -p \"$REMOTE_DIR\"; bye" >/dev/null 2>&1 || true
+                run_lftp sftp://$SERVER "mkdir -p \"$REMOTE_DIR\"; bye" >/dev/null 2>&1 || true
             fi
-            # put -O into the remote dir
-            run_lftp sftp://$DEFAULT_SERVER "put -O \"$REMOTE_DIR\" \"$LOCAL_PATH\"; bye"
+            # Use lcd/cd approach for clarity
+            LFTP_CMD="lcd \"$LOCAL_PARENT\"; cd \"$REMOTE_DIR\"; put \"$BASENAME\"; bye"
+            if [ "$DEBUG" -eq 1 ]; then
+                echo "DEBUG: LFTP_CMD=$LFTP_CMD" >&2
+            fi
+            run_lftp sftp://$SERVER "$LFTP_CMD"
         fi
     fi
     rc=$?
@@ -250,7 +343,7 @@ if command -v sshpass >/dev/null 2>&1 && command -v sftp >/dev/null 2>&1; then
         echo "Creating tarball $TMP_TAR (this may take a while)..."
         tar -czf "$TMP_TAR" -C "$(dirname "$LOCAL_PATH")" "$BASENAME"
         echo "Uploading tarball..."
-        sshpass -p "$PASSWORD" sftp -oBatchMode=no -b - "$USERNAME@$DEFAULT_SERVER" <<EOF
+        sshpass -p "$PASSWORD" sftp -oBatchMode=no -b - "$USERNAME@$SERVER" <<EOF
 put $TMP_TAR $DEST_PATH
 bye
 EOF
@@ -264,7 +357,7 @@ EOF
         exit 0
     else
         # single file upload
-        sshpass -p "$PASSWORD" sftp -oBatchMode=no -b - "$USERNAME@$DEFAULT_SERVER" <<EOF
+        sshpass -p "$PASSWORD" sftp -oBatchMode=no -b - "$USERNAME@$SERVER" <<EOF
 put $LOCAL_PATH $DEST_PATH
 bye
 EOF

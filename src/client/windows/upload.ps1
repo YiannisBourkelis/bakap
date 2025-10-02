@@ -25,11 +25,12 @@
   Force upload: overwrite existing remote files/directories and upload even if identical.
 .PARAMETER WinSCPPath
   Path to WinSCP.com executable (if not in PATH).
+.PARAMETER Server
+  SFTP server hostname or IP address (required).
 
 USAGE
-  .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -DestPath uploads/ -ExpectedHostFingerprint 'SHA256:...'
-  .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -DestPath uploads/ -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com' -Force
-  .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -DestPath uploads/ -SkipIdentical
+  .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -Server 202.61.15.24 -DestPath uploads/ -ExpectedHostFingerprint 'SHA256:...'
+  .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -Server 192.168.1.100 -DestPath uploads/ -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com' -Force
 
 Notes:
 - Install WinSCP and put WinSCP.com in PATH for best results: https://winscp.net/
@@ -44,15 +45,14 @@ param(
   [string]$ExpectedHostFingerprint = "",
   [switch]$LogDebug,
   [switch]$Force,
-  [string]$WinSCPPath = ""
+  [string]$WinSCPPath = "",
+  [Parameter(Mandatory=$true)][string]$Server
 )
 
 # Normalize destination path: strip leading slashes/backslashes so the path is
 # always relative to the user's chroot. If empty after trimming, use 'uploads'.
 $DestPath = $DestPath.TrimStart('/','\')
 if ([string]::IsNullOrEmpty($DestPath) -or [string]::IsNullOrEmpty($DestPath.Trim())) { $DestPath = 'uploads' }
-
-$Server = "202.61.225.34"
 
 function Write-Err([string]$m){ Write-Host $m -ForegroundColor Red }
 
