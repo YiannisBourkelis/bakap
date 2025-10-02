@@ -117,6 +117,107 @@ Bash script with lftp/sftp support and named parameters:
 - Mirror mode for directory uploads (uploads contents)
 - Host key auto-acceptance option
 
+#### Automated Backup Setup (`src/client/linux/setup-client.sh`)
+
+Interactive setup script that configures automated daily backups for Linux clients:
+
+```bash
+# Make it executable
+chmod +x src/client/linux/setup-client.sh
+
+# Run as root
+sudo ./src/client/linux/setup-client.sh
+```
+
+**What it does:**
+- Interactively prompts for backup configuration (path, server, credentials, schedule)
+- Creates secure credentials file in `/root/.bakap-credentials/` (mode 600)
+- Generates backup script in `/usr/local/bin/bakap-backup/`
+- Configures log rotation for backup logs
+- Adds cron job for automated daily backups
+- Validates all settings and offers immediate test run
+
+**Example Session:**
+```
+==========================================
+Bakap Client Setup
+==========================================
+This script will help you configure automated daily backups.
+
+ℹ Please provide the following information:
+
+Local path to backup (e.g., /var/backup/web1): /var/backup/web1
+Backup server hostname or IP: backup.example.com
+Backup username: myuser
+Backup password: ****
+Confirm password: ****
+Remote destination path (default: /uploads): /uploads
+Backup time (HH:MM, e.g., 01:00): 01:00
+Backup job name (default: web1): web1-production
+
+==========================================
+Configuration Summary
+==========================================
+Local path:      /var/backup/web1
+Backup server:   backup.example.com
+Username:        myuser
+Remote path:     /uploads
+Backup time:     01:00 daily
+Job name:        web1-production
+
+Is this correct? (y/n): y
+
+==========================================
+Installing Backup Configuration
+==========================================
+✓ Created scripts directory: /usr/local/bin/bakap-backup
+✓ Created secure credentials file: /root/.bakap-credentials/web1-production.conf
+✓ Created backup script: /usr/local/bin/bakap-backup/backup-web1-production.sh
+✓ Created log rotation config: /etc/logrotate.d/bakap-web1-production
+✓ Added cron job to run daily at 01:00
+✓ lftp is installed
+
+==========================================
+Setup Complete!
+==========================================
+
+✓ Backup job 'web1-production' has been configured successfully!
+
+ℹ Configuration details:
+  • Backup script:    /usr/local/bin/bakap-backup/backup-web1-production.sh
+  • Credentials:      /root/.bakap-credentials/web1-production.conf
+  • Log file:         /var/log/bakap-web1-production.log
+  • Schedule:         Daily at 01:00
+
+ℹ Useful commands:
+  • Test backup now:      /usr/local/bin/bakap-backup/backup-web1-production.sh
+  • View logs:            tail -f /var/log/bakap-web1-production.log
+  • List cron jobs:       crontab -l
+  • Edit cron schedule:   crontab -e
+
+Would you like to test the backup now? (y/n):
+```
+
+**What gets created:**
+```
+/usr/local/bin/bakap-backup/
+  └── backup-web1-production.sh        # Backup script
+
+/root/.bakap-credentials/
+  └── web1-production.conf             # Secure credentials (mode 600)
+
+/etc/logrotate.d/
+  └── bakap-web1-production            # Log rotation config
+
+/var/log/
+  └── bakap-web1-production.log        # Backup logs
+
+Cron job:
+  0 1 * * * /usr/local/bin/bakap-backup/backup-web1-production.sh
+```
+
+**Multiple backup jobs:** Run the script multiple times to configure different backup jobs (e.g., web1, database, documents). Each gets its own script, credentials, logs, and schedule.
+
 ### Server Administration
 
 #### User Management (`src/server/manage_users.sh`)
