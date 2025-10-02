@@ -99,12 +99,46 @@ get_apparent_size() {
     fi
 }
 
+# Get last backup date for a user
+get_last_backup_date() {
+    local user="$1"
+    local home_dir="/home/$user"
+    local last_activity=""
+    local activity_epoch=0
+    
+    # Check latest snapshot
+    if [ -d "$home_dir/versions" ]; then
+        local latest_snapshot=$(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+        if [ -n "$latest_snapshot" ]; then
+            activity_epoch=$(stat -c %Y "$latest_snapshot" 2>/dev/null || stat -f %m "$latest_snapshot" 2>/dev/null || echo 0)
+        fi
+    fi
+    
+    # Check uploads directory for any newer files
+    if [ -d "$home_dir/uploads" ]; then
+        local latest_file=$(find "$home_dir/uploads" -type f -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1)
+        if [ -n "$latest_file" ]; then
+            local file_epoch=$(echo "$latest_file" | cut -d' ' -f1 | cut -d. -f1)
+            if [ "$file_epoch" -gt "$activity_epoch" ]; then
+                activity_epoch=$file_epoch
+            fi
+        fi
+    fi
+    
+    if [ "$activity_epoch" -gt 0 ]; then
+        last_activity=$(date -d "@$activity_epoch" "+%Y-%m-%d" 2>/dev/null || date -r "$activity_epoch" "+%Y-%m-%d" 2>/dev/null || echo "Unknown")
+        echo "$last_activity|$activity_epoch"
+    else
+        echo "Never|0"
+    fi
+}
+
 # List all backup users with their disk usage
 list_users() {
     echo "Backup Users:"
-    echo "============================================"
-    printf "%-20s %15s %15s %10s\n" "Username" "Actual (MB)" "Apparent (MB)" "Snapshots"
-    echo "--------------------------------------------"
+    echo "==============================================================================="
+    printf "%-15s %10s %10s %8s %12s %s\n" "Username" "Size (MB)" "Apparent" "Snaps" "Last Backup" "Status"
+    echo "-------------------------------------------------------------------------------"
     
     local users=$(get_backup_users)
     if [ -z "$users" ]; then
@@ -115,6 +149,8 @@ list_users() {
     local total_actual=0
     local total_apparent=0
     local total_users=0
+    local now=$(date +%s)
+    local warn_threshold=$((15 * 86400))  # 15 days in seconds
     
     while IFS= read -r user; do
         if [ -z "$user" ]; then
@@ -136,18 +172,45 @@ list_users() {
             snapshot_count=$(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
         fi
         
-        printf "%-20s %15s %15s %10s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count"
+        # Get last backup date
+        local backup_info=$(get_last_backup_date "$user")
+        local last_date=$(echo "$backup_info" | cut -d'|' -f1)
+        local last_epoch=$(echo "$backup_info" | cut -d'|' -f2)
+        
+        # Determine status
+        local status="OK"
+        local status_color=""
+        if [ "$last_date" = "Never" ]; then
+            status="⚠ NEVER"
+            status_color="\033[1;33m"  # Yellow
+        elif [ "$last_epoch" -gt 0 ]; then
+            local days_ago=$(( (now - last_epoch) / 86400 ))
+            if [ $days_ago -gt 15 ]; then
+                status="⚠ ${days_ago}d ago"
+                status_color="\033[1;33m"  # Yellow
+            else
+                status="✓ ${days_ago}d ago"
+                status_color="\033[0;32m"  # Green
+            fi
+        fi
+        
+        # Print with color if status needs attention
+        if [ -n "$status_color" ] && [ "$status" != "✓"* ]; then
+            printf "%-15s %10s %10s %8s %12s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$last_date" "$status"
+        else
+            printf "%-15s %10s %10s %8s %12s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$last_date" "$status"
+        fi
         
         total_actual=$((total_actual + actual_size))
         total_apparent=$((total_apparent + apparent_size))
         total_users=$((total_users + 1))
     done <<< "$users"
     
-    echo "--------------------------------------------"
-    printf "%-20s %15s %15s %10s\n" "Total ($total_users users)" "$total_actual" "$total_apparent" ""
+    echo "-------------------------------------------------------------------------------"
+    printf "%-15s %10s %10s %8s\n" "Total: $total_users" "$total_actual" "$total_apparent" ""
     echo ""
-    echo "Note: 'Actual' shows real disk usage (hardlinks counted once)"
-    echo "      'Apparent' shows total size if all files were separate"
+    echo "Note: Size shows real disk usage (hardlinks counted once)"
+    echo "      Status: ✓ = backed up recently, ⚠ = >15 days since last backup"
 }
 
 # Show detailed information about a specific user
