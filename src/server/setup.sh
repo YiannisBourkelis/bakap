@@ -62,8 +62,20 @@ systemctl restart ssh
 
 # Configure fail2ban for SSH/SFTP protection
 echo "Configuring fail2ban..."
+
+# Detect the correct auth log path
+if [ -f /var/log/auth.log ]; then
+    AUTH_LOG="/var/log/auth.log"
+elif [ -f /var/log/secure ]; then
+    AUTH_LOG="/var/log/secure"
+else
+    # Create auth.log if it doesn't exist
+    touch /var/log/auth.log
+    AUTH_LOG="/var/log/auth.log"
+fi
+
 if [ ! -f /etc/fail2ban/jail.d/bakap-sshd.conf ]; then
-    cat > /etc/fail2ban/jail.d/bakap-sshd.conf <<'F2B'
+    cat > /etc/fail2ban/jail.d/bakap-sshd.conf <<F2B
 # Bakap fail2ban configuration for SSH/SFTP protection
 # This protects both SSH and SFTP since SFTP uses SSH authentication
 
@@ -71,25 +83,25 @@ if [ ! -f /etc/fail2ban/jail.d/bakap-sshd.conf ]; then
 enabled = true
 port = ssh
 filter = sshd
-logpath = /var/log/auth.log
+logpath = $AUTH_LOG
+backend = systemd
 maxretry = 5
 bantime = 3600
 findtime = 600
-# Also catch authentication failures for SFTP subsystem
 action = iptables-allports[name=sshd]
 
 [sshd-ddos]
 enabled = true
 port = ssh
 filter = sshd-ddos
-logpath = /var/log/auth.log
+logpath = $AUTH_LOG
+backend = systemd
 maxretry = 10
 bantime = 600
 findtime = 60
-# Protect against connection flooding/DOS
 action = iptables-allports[name=sshd-ddos]
 F2B
-    echo "  - Created fail2ban SSH/SFTP jail configuration"
+    echo "  - Created fail2ban SSH/SFTP jail configuration (using $AUTH_LOG)"
 else
     echo "  - fail2ban SSH/SFTP jail configuration already exists"
 fi
