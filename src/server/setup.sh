@@ -94,6 +94,21 @@ else
     echo "  - fail2ban SSH/SFTP jail configuration already exists"
 fi
 
+# Create sshd-ddos filter for connection flooding protection
+if [ ! -f /etc/fail2ban/filter.d/sshd-ddos.conf ]; then
+    cat > /etc/fail2ban/filter.d/sshd-ddos.conf <<'FILTER'
+# Bakap filter for SSH/SFTP DOS (connection flooding) protection
+# Detects rapid connection attempts that may indicate a DOS attack
+[Definition]
+failregex = ^.*Did not receive identification string from <HOST>.*$
+            ^.*Connection closed by <HOST> port \d+ \[preauth\].*$
+            ^.*Connection reset by <HOST> port \d+ \[preauth\].*$
+            ^.*SSH: Server;Ltype: Version;Remote: <HOST>-\d+;.*$
+ignoreregex =
+FILTER
+    echo "  - Created sshd-ddos filter"
+fi
+
 # Create custom filter for SFTP-specific issues if needed
 if [ ! -f /etc/fail2ban/filter.d/bakap-sftp.conf ]; then
     cat > /etc/fail2ban/filter.d/bakap-sftp.conf <<'FILTER'
