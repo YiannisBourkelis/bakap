@@ -24,12 +24,21 @@ This software is provided "as is", without warranty of any kind, express or impl
 - Security configurations should be reviewed and hardened based on your specific requirements.
 
 ## Prerequisites
-- Debian Linux (tested on recent versions).
-- Root or sudo access for setup.
-- OpenSSH server (installed automatically by setup script).
-- Basic knowledge of SFTP for client uploads/downloads.
+
+### Server Requirements
+- Debian Linux (tested on recent versions)
+- Root or sudo access for setup
+- OpenSSH server (installed automatically by setup script)
+
+### Client Requirements
+- Linux/Unix system (for Linux client) or Windows (for PowerShell client)
+- Git (for cloning repository and updates)
+- lftp or sshpass (installed automatically if needed)
+- Basic knowledge of SFTP
 
 ## Installation
+
+### Server Installation
 1. Clone the repository:
    ```
    git clone https://github.com/YiannisBourkelis/bakap.git
@@ -53,6 +62,81 @@ This software is provided "as is", without warranty of any kind, express or impl
    sudo ./src/server/create_user.sh <username>
    ```
    This creates a user with a secure random password, sets up directories, and applies restrictions.
+
+### Client Installation
+
+#### Installation Location Recommendations
+
+The recommended installation location depends on your use case:
+
+| Location | Rating | Best For | Notes |
+|----------|--------|----------|-------|
+| **`/opt/bakap`** | ⭐⭐⭐⭐⭐ | **Production systems** | Standard location for third-party software. Root-owned, system-wide, survives user account changes. **This is the default for `setup-client.sh`.** |
+| `/usr/local/src/bakap` | ⭐⭐⭐⭐ | Alternative production | Also system-wide and root-owned. Traditionally used for locally built software. |
+| `~/bakap` | ⭐⭐ | Testing only | User-specific, deleted with user account. Not suitable for root cron jobs or production use. |
+
+**Recommendation:** Use `/opt/bakap` for all production client installations. This is where `setup-client.sh` clones the repository by default.
+
+#### Manual Client Setup (Linux)
+
+1. Clone the repository to the recommended location:
+   ```bash
+   sudo git clone https://github.com/YiannisBourkelis/bakap.git /opt/bakap
+   ```
+
+2. Make the client script executable:
+   ```bash
+   sudo chmod +x /opt/bakap/src/client/linux/upload.sh
+   ```
+
+3. Set up automated backups (see **Automated Linux Client Setup** below for the easy way).
+
+#### Automated Linux Client Setup
+
+The easiest way to configure Linux client backups is with the interactive setup script:
+
+```bash
+cd /opt/bakap
+sudo ./src/client/linux/setup-client.sh
+```
+
+This script will:
+- Clone the repository to `/opt/bakap` if not already present
+- Prompt for backup configuration (local path, server, credentials, schedule)
+- Optionally enable automatic updates from GitHub before each backup
+- Create secure credential storage (mode 600)
+- Set up cron job for scheduled backups
+- Configure log rotation
+- Offer to run a test backup immediately
+
+**Example session:**
+```
+Enter the local path to backup: /var/www
+Enter the backup server hostname or IP: backup.example.com
+Enter the SFTP username: webserver1
+Enter the SFTP password: ********
+Confirm SFTP password: ********
+Enter the destination path on server [/uploads]: /web-backups
+Enter the backup time (HH:MM format, e.g., 02:00): 03:30
+Enter a name for this backup job (alphanumeric, no spaces): web-backup
+
+Would you like to enable automatic updates from GitHub? (y/n): y
+```
+
+The script creates:
+- `/usr/local/bin/bakap-backup/web-backup.sh` (backup script)
+- `/root/.bakap-credentials/web-backup.conf` (encrypted credentials, mode 600)
+- Cron job running at 03:30 daily
+- Log rotation for `/var/log/bakap-web-backup.log`
+
+**Auto-Update Feature:**
+If enabled, before each backup the script will:
+1. Check for updates from GitHub (`git fetch`)
+2. Automatically merge updates (`git merge --ff-only origin/main`)
+3. Log update status in backup logs
+4. Proceed with backup using the latest version
+
+This ensures clients always use the latest security fixes and features.
 
 ## Usage
 
