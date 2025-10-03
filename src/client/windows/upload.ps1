@@ -66,7 +66,7 @@ if (-not (Test-Path -LiteralPath $LocalPath)) {
     exit 3
 }
 
-Write-Host "Uploading '$LocalPath' as user '$Username' to $Server:$DestPath"
+Write-Host "Uploading '$LocalPath' as user '$Username' to ${Server}:$DestPath"
 
 # Find WinSCP.com
 $winscp = $null
@@ -282,18 +282,20 @@ bye
 
   if ($LogDebug.IsPresent) {
     $logFile = [System.IO.Path]::GetTempFileName()
+    $remoteTarget = "$Username@${Server}:$DestPath"
     if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
-      & $pscp -r -pw $Password $LocalPath "$Username@$Server:$DestPath" 2>&1 | Tee-Object -FilePath $logFile
+      & $pscp -r -pw $Password $LocalPath $remoteTarget 2>&1 | Tee-Object -FilePath $logFile
     } else {
-      & $pscp -pw $Password $LocalPath "$Username@$Server:$DestPath" 2>&1 | Tee-Object -FilePath $logFile
+      & $pscp -pw $Password $LocalPath $remoteTarget 2>&1 | Tee-Object -FilePath $logFile
     }
     $rc = $LASTEXITCODE
     Write-Host "pscp debug log: $logFile"
   } else {
+    $remoteTarget = "$Username@${Server}:$DestPath"
     if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
-      & $pscp -r -pw $Password $LocalPath "$Username@$Server:$DestPath"
+      & $pscp -r -pw $Password $LocalPath $remoteTarget
     } else {
-      & $pscp -pw $Password $LocalPath "$Username@$Server:$DestPath"
+      & $pscp -pw $Password $LocalPath $remoteTarget
     }
     $rc = $LASTEXITCODE
   }
