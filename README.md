@@ -56,6 +56,12 @@ This software is provided "as is", without warranty of any kind, express or impl
    sudo ./src/server/setup.sh
    ```
    This installs required packages, configures SSH/SFTP with restrictions, sets up real-time monitoring with configurable retention policies, and prepares the server.
+   
+   **Security Features Enabled:**
+   - fail2ban protection against brute force attacks
+   - SSH/SFTP authentication monitoring (5 failed attempts = 1 hour ban)
+   - DOS protection (10 connection attempts in 60s = 10 minute ban)
+   - IP blocking at firewall level (iptables)
 
 5. Create backup users (run as root for each user):
    ```
@@ -422,6 +428,52 @@ sudo systemctl status bakap-monitor.service
 ```bash
 sudo systemctl restart bakap-monitor.service
 ```
+
+#### Security Monitoring (fail2ban)
+
+**Check fail2ban status:**
+```bash
+sudo systemctl status fail2ban
+```
+
+**View currently banned IPs:**
+```bash
+sudo fail2ban-client status sshd
+sudo fail2ban-client status sshd-ddos
+```
+
+**View ban statistics and history:**
+```bash
+# Show all banned IPs across all jails
+sudo fail2ban-client banned
+
+# View detailed jail statistics
+sudo fail2ban-client status
+
+# Check fail2ban logs
+sudo tail -f /var/log/fail2ban.log
+
+# Count banned IPs today
+sudo grep "$(date +%Y-%m-%d)" /var/log/fail2ban.log | grep "Ban" | wc -l
+```
+
+**Manually unban an IP (if needed):**
+```bash
+sudo fail2ban-client set sshd unbanip <IP_ADDRESS>
+sudo fail2ban-client set sshd-ddos unbanip <IP_ADDRESS>
+```
+
+**View recent failed SSH/SFTP authentication attempts:**
+```bash
+sudo grep "Failed password" /var/log/auth.log | tail -20
+sudo grep "Connection closed by authenticating user" /var/log/auth.log | tail -20
+```
+
+**Security configuration details:**
+- **Authentication failures**: 5 failed attempts within 10 minutes = 1 hour IP ban
+- **DOS protection**: 10 connection attempts within 60 seconds = 10 minute IP ban
+- **Scope**: Protects both SSH and SFTP (same authentication layer)
+- **Action**: Complete IP block at firewall level (iptables)
 
 ### For End Users (SFTP Access)
 
