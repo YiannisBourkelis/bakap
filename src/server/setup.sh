@@ -18,7 +18,7 @@ apt update && apt upgrade -y
 
 # Install required packages
 echo "Installing required packages..."
-apt install -y openssh-server pwgen cron inotify-tools rsync
+apt install -y openssh-server pwgen cron inotify-tools rsync fail2ban
 
 # Create backup users group
 echo "Creating backupusers group..."
@@ -60,7 +60,60 @@ fi
 echo "Restarting SSH service..."
 systemctl restart ssh
 
-# fail2ban installation/configuration is deferred; install it manually when ready
+# Configure fail2ban for SSH/SFTP protection
+echo "Configuring fail2ban..."
+if [ ! -f /etc/fail2ban/jail.d/bakap-sshd.conf ]; then
+    cat > /etc/fail2ban/jail.d/bakap-sshd.conf <<'F2B'
+# Bakap fail2ban configuration for SSH/SFTP protection
+# This protects both SSH and SFTP since SFTP uses SSH authentication
+
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 5
+bantime = 3600
+findtime = 600
+# Also catch authentication failures for SFTP subsystem
+action = iptables-allports[name=sshd]
+
+[sshd-ddos]
+enabled = true
+port = ssh
+filter = sshd-ddos
+logpath = /var/log/auth.log
+maxretry = 10
+bantime = 600
+findtime = 60
+# Protect against connection flooding/DOS
+action = iptables-allports[name=sshd-ddos]
+F2B
+    echo "  - Created fail2ban SSH/SFTP jail configuration"
+else
+    echo "  - fail2ban SSH/SFTP jail configuration already exists"
+fi
+
+# Create custom filter for SFTP-specific issues if needed
+if [ ! -f /etc/fail2ban/filter.d/bakap-sftp.conf ]; then
+    cat > /etc/fail2ban/filter.d/bakap-sftp.conf <<'FILTER'
+# Bakap custom filter for SFTP abuse
+[Definition]
+failregex = ^.*subsystem request for sftp.*Failed password for .* from <HOST>.*$
+            ^.*subsystem request for sftp.*Connection closed by authenticating user .* <HOST>.*\[preauth\]$
+ignoreregex =
+FILTER
+    echo "  - Created custom SFTP abuse filter"
+fi
+
+# Enable and start fail2ban
+echo "Starting fail2ban service..."
+systemctl enable fail2ban
+systemctl restart fail2ban
+echo "  - fail2ban is now protecting SSH/SFTP:"
+echo "    * 5 failed login attempts = 1 hour ban"
+echo "    * 10 connection attempts in 60s = 10 minute ban (DOS protection)"
+echo "    * Applies to both SSH and SFTP connections"
 
 
 # Create base directories
