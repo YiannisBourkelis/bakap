@@ -207,7 +207,7 @@ Bash script with lftp/sftp support and named parameters:
 - Mirror mode for directory uploads (uploads contents)
 - Host key auto-acceptance option
 
-#### Automated Backup Setup (`src/client/linux/setup-client.sh`)
+#### Automated Linux Backup Setup (`src/client/linux/setup-client.sh`)
 
 Interactive setup script that configures automated daily backups for Linux clients:
 
@@ -307,6 +307,117 @@ Cron job:
 ```
 
 **Multiple backup jobs:** Run the script multiple times to configure different backup jobs (e.g., web1, database, documents). Each gets its own script, credentials, logs, and schedule.
+
+#### Automated Windows Backup Setup (`src/client/windows/setup-client.ps1`)
+
+Interactive setup script that configures automated daily backups for Windows clients (Windows Server 2008 R2 and later):
+
+```powershell
+# Run PowerShell as Administrator, then:
+cd path\to\bakap\src\client\windows
+.\setup-client.ps1
+```
+
+**What it does:**
+- Interactively prompts for backup configuration (path, server, credentials, schedule)
+- Locates or prompts for path to `upload.ps1` script
+- Creates secure credentials file in `C:\ProgramData\bakap-credentials\` (restricted to Administrators)
+- Generates backup script in `C:\Program Files\bakap-backup\`
+- Creates Windows Scheduled Task for daily automated backups
+- Validates all settings and offers immediate test run
+
+**Example Session:**
+```
+==========================================
+Bakap Windows Client Setup
+==========================================
+This script will help you configure automated daily backups.
+
+Please provide the following information:
+
+Enter the local path to backup (e.g., C:\Data): C:\Data
+Enter the backup server hostname or IP: backup.example.com
+Enter the SFTP username: webserver1
+Enter the SFTP password: ********
+Confirm SFTP password: ********
+Enter the destination path on server (default: /uploads): /uploads
+Enter the backup time (HH:MM format, e.g., 02:00): 03:00
+Enter a name for this backup job (alphanumeric, no spaces): web-backup
+Found upload.ps1 at: C:\bakap\src\client\windows\upload.ps1
+Use this location? (y/n): y
+[OK] Using upload script: C:\bakap\src\client\windows\upload.ps1
+
+==========================================
+Configuration Summary
+==========================================
+Local path:      C:\Data
+Backup server:   backup.example.com
+Username:        webserver1
+Remote path:     /uploads
+Backup time:     03:00 daily
+Job name:        web-backup
+
+Is this correct? (y/n): y
+
+==========================================
+Installing Backup Configuration
+==========================================
+[OK] Created directory: C:\Program Files\bakap-backup
+[OK] Created directory: C:\ProgramData\bakap-credentials
+[OK] Created directory: C:\ProgramData\bakap-logs
+[OK] Created secure credentials file: C:\ProgramData\bakap-credentials\web-backup.xml
+[OK] Created backup script: C:\Program Files\bakap-backup\backup-web-backup.ps1
+[OK] Created scheduled task: Bakap-Backup-web-backup
+[OK] WinSCP found (recommended)
+
+==========================================
+Setup Complete!
+==========================================
+
+Backup job 'web-backup' has been configured successfully!
+
+Configuration details:
+  - Backup script:    C:\Program Files\bakap-backup\backup-web-backup.ps1
+  - Credentials:      C:\ProgramData\bakap-credentials\web-backup.xml
+  - Log file:         C:\ProgramData\bakap-logs\bakap-web-backup.log
+  - Schedule:         Daily at 03:00
+
+Useful commands:
+  - Test backup now:      PowerShell.exe -ExecutionPolicy Bypass -File "C:\Program Files\bakap-backup\backup-web-backup.ps1"
+  - View logs:            Get-Content "C:\ProgramData\bakap-logs\bakap-web-backup.log" -Tail 50
+  - View scheduled task:  Get-ScheduledTask -TaskName 'Bakap-Backup-web-backup'
+  - Run task manually:    Start-ScheduledTask -TaskName 'Bakap-Backup-web-backup'
+  - Disable task:         Disable-ScheduledTask -TaskName 'Bakap-Backup-web-backup'
+
+Would you like to test the backup now? (y/n):
+```
+
+**What gets created:**
+```
+C:\Program Files\bakap-backup\
+  └── backup-web-backup.ps1            # Backup script
+
+C:\ProgramData\bakap-credentials\
+  └── web-backup.xml                   # Secure credentials (Administrators only)
+
+C:\ProgramData\bakap-logs\
+  └── bakap-web-backup.log             # Backup logs
+
+Windows Scheduled Task:
+  Name: Bakap-Backup-web-backup
+  Runs as: NT AUTHORITY\SYSTEM
+  Schedule: Daily at 03:00
+```
+
+**Requirements:**
+- Windows Server 2008 R2 or later (PowerShell 2.0+)
+- Administrator privileges
+- `upload.ps1` script (in same directory or specify custom path)
+- WinSCP (recommended) or PuTTY (pscp.exe) in PATH
+  - Download WinSCP: https://winscp.net/
+  - Download PuTTY: https://www.chiark.greenend.org.uk/~sgtatham/putty/
+
+**Multiple backup jobs:** Run the script multiple times to configure different backup jobs. Each gets its own scheduled task, credentials, logs, and schedule.
 
 ### Server Administration
 
@@ -516,19 +627,110 @@ sudo grep "Connection closed by authenticating user" /var/log/auth.log | tail -2
 
 Both client scripts support configuration via command-line parameters. For automated backups, consider:
 
-**Windows (Scheduled Task):**
+#### Automated Setup (Recommended)
+
+**Windows:** Use `src/client/windows/setup-client.ps1` (see [Automated Windows Backup Setup](#automated-windows-backup-setup-srcclientwindowssetup-clientps1) above)
+
+**Linux:** Use `src/client/linux/setup-client.sh` (see [Automated Linux Backup Setup](#automated-linux-backup-setup-srcclientlinuxsetup-clientsh) above)
+
+#### Manual Scheduling
+
+If you prefer to manually configure scheduled backups:
+
+**Windows - Task Scheduler (PowerShell):**
 ```powershell
-# Create a scheduled task to run daily
-$action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-File C:\backup\upload.ps1 -LocalPath C:\data -User backupuser -Password pass -Server backup.example.com"
-$trigger = New-ScheduledTaskTrigger -Daily -At 2am
-Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "DailyBackup" -Description "Daily backup to bakap server"
+# Method 1: Using PowerShell cmdlets (Windows Server 2012+, recommended)
+$action = New-ScheduledTaskAction -Execute "PowerShell.exe" `
+    -Argument "-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password 'SecurePass123!' -Server backup.example.com -DestPath /uploads"
+
+$trigger = New-ScheduledTaskTrigger -Daily -At 2:00AM
+
+$settings = New-ScheduledTaskSettingsSet `
+    -StartWhenAvailable `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -RunOnlyIfNetworkAvailable
+
+Register-ScheduledTask -TaskName "Bakap-Daily-Backup" `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings `
+    -User "NT AUTHORITY\SYSTEM" `
+    -RunLevel Highest `
+    -Description "Daily backup to bakap server"
 ```
 
-**Linux (Cron Job):**
-```bash
-# Add to crontab (crontab -e)
-0 2 * * * /path/to/upload.sh -l /data -u backupuser -p "pass" -s backup.example.com >> /var/log/backup.log 2>&1
+**Windows - Task Scheduler (GUI method for older systems):**
+1. Open **Task Scheduler** (`taskschd.msc`)
+2. Click **Create Basic Task** in the right panel
+3. Name: "Bakap Daily Backup", click **Next**
+4. Trigger: Select **Daily**, click **Next**
+5. Start time: Set your desired backup time (e.g., 2:00 AM), click **Next**
+6. Action: Select **Start a program**, click **Next**
+7. Program/script: `PowerShell.exe`
+8. Add arguments:
+   ```
+   -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "C:\bakap\src\client\windows\upload.ps1" -LocalPath "C:\Data" -Username "backupuser" -Password "SecurePass123!" -Server "backup.example.com" -DestPath "/uploads"
+   ```
+9. Click **Next**, then **Finish**
+10. Right-click the task, select **Properties**
+11. Under **General** tab:
+    - Select "Run whether user is logged on or not"
+    - Check "Run with highest privileges"
+    - Change user to "SYSTEM" (click Change User, type "SYSTEM")
+12. Under **Settings** tab:
+    - Check "Run task as soon as possible after a scheduled start is missed"
+    - Check "Start the task only if the computer is on AC power" (optional)
+13. Click **OK**
+
+**Windows - Legacy schtasks.exe (Windows Server 2008 R2):**
+```cmd
+schtasks /Create /SC DAILY /TN "Bakap-Daily-Backup" /TR "PowerShell.exe -ExecutionPolicy Bypass -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password SecurePass123! -Server backup.example.com -DestPath /uploads" /ST 02:00 /RU SYSTEM /RL HIGHEST
 ```
+
+**Linux - Cron Job:**
+```bash
+# Edit root's crontab
+sudo crontab -e
+
+# Add this line to run backup daily at 2:00 AM
+0 2 * * * /opt/bakap/src/client/linux/upload.sh -l /var/data -u backupuser -p "SecurePass123!" -s backup.example.com -d /uploads >> /var/log/bakap-backup.log 2>&1
+
+# Optional: Add log rotation
+# Create /etc/logrotate.d/bakap-backup with:
+/var/log/bakap-backup.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+}
+```
+
+**Cron Schedule Examples:**
+```bash
+# Every day at 2:00 AM
+0 2 * * * /path/to/backup-script.sh
+
+# Every day at 3:30 AM
+30 3 * * * /path/to/backup-script.sh
+
+# Every Sunday at 1:00 AM (weekly)
+0 1 * * 0 /path/to/backup-script.sh
+
+# Every 6 hours
+0 */6 * * * /path/to/backup-script.sh
+
+# Every 30 minutes
+*/30 * * * * /path/to/backup-script.sh
+```
+
+**Security Notes:**
+- For production use, avoid embedding passwords in command lines (visible in process lists)
+- Use the automated setup scripts which store credentials securely
+- On Windows: Credentials stored in `C:\ProgramData\bakap-credentials\` (restricted to Administrators)
+- On Linux: Credentials stored in `/root/.bakap-credentials/` (mode 600)
 
 ## Development
 To modify or extend the scripts:
