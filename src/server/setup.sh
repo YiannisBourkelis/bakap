@@ -194,7 +194,7 @@ echo "\$(date '+%F %T') ========================================" >> "\$LOG"
 inotifywait -m -r /home -e close_write -e moved_to --format '%w%f %e' |
 while read path event; do
     # Only handle events that happen inside an uploads directory
-    case "$path" in
+    case "\$path" in
         */uploads|*/uploads/*)
             ;;
         *)
@@ -203,12 +203,12 @@ while read path event; do
     esac
 
     # Extract username from path: /home/<user>/uploads/...
-    user=$(echo "$path" | awk -F/ '{print $3}')
-    if [ -z "$user" ]; then
+    user=\$(echo "\$path" | awk -F/ '{print \$3}')
+    if [ -z "\$user" ]; then
         continue
     fi
 
-    if [ ! -d "/home/$user/uploads" ]; then
+    if [ ! -d "/home/\$user/uploads" ]; then
         # uploads dir might have been removed
         continue
     fi
@@ -220,57 +220,57 @@ while read path event; do
     # BAKAP_SNAPSHOT_DELAY - additional seconds to wait after last close_write (default 10)
     #   Ensures batch uploads (multiple files) are captured in one snapshot
     # For very large batch uploads (100+ files), increase DEBOUNCE_SECONDS
-    DEBOUNCE_SECONDS=${BAKAP_DEBOUNCE_SECONDS:-15}
-    SLEEP_SECONDS=${BAKAP_SNAPSHOT_DELAY:-10}
+    DEBOUNCE_SECONDS=\${BAKAP_DEBOUNCE_SECONDS:-15}
+    SLEEP_SECONDS=\${BAKAP_SNAPSHOT_DELAY:-10}
     # Use a small per-user timestamp file in /var/run
     runstamp_dir=/var/run/bakap
-    mkdir -p "$runstamp_dir"
-    lastfile="$runstamp_dir/last_$user"
-    now=$(date +%s)
-    if [ -f "$lastfile" ]; then
-        last=$(cat "$lastfile" 2>/dev/null || echo 0)
+    mkdir -p "\$runstamp_dir"
+    lastfile="\$runstamp_dir/last_\$user"
+    now=\$(date +%s)
+    if [ -f "\$lastfile" ]; then
+        last=\$(cat "\$lastfile" 2>/dev/null || echo 0)
     else
         last=0
     fi
     # If we created a snapshot less than DEBOUNCE_SECONDS ago, skip (coalesce)
-    if [ $((now - last)) -lt "$DEBOUNCE_SECONDS" ]; then
+    if [ \$((now - last)) -lt "\$DEBOUNCE_SECONDS" ]; then
         # update the timestamp so subsequent events extend the window
-        echo "$now" > "$lastfile" 2>/dev/null || true
+        echo "\$now" > "\$lastfile" 2>/dev/null || true
         continue
     fi
     # wait a short moment to let other file operations settle
-    sleep "$SLEEP_SECONDS"
+    sleep "\$SLEEP_SECONDS"
     
     # Check if uploads directory has any files before creating snapshot
-    if [ -z "$(ls -A "/home/$user/uploads" 2>/dev/null)" ]; then
-        echo "$(date '+%F %T') Skipping snapshot for $user: uploads directory is empty" >> "$LOG"
-        date +%s > "$lastfile" 2>/dev/null || true
+    if [ -z "\$(ls -A "/home/\$user/uploads" 2>/dev/null)" ]; then
+        echo "\$(date '+%F %T') Skipping snapshot for \$user: uploads directory is empty" >> "\$LOG"
+        date +%s > "\$lastfile" 2>/dev/null || true
         continue
     fi
     
-    timestamp=$(date +%Y-%m-%d_%H-%M-%S)
-    snapshot_dir="/home/$user/versions/$timestamp"
+    timestamp=\$(date +%Y-%m-%d_%H-%M-%S)
+    snapshot_dir="/home/\$user/versions/\$timestamp"
     
     # Find the latest snapshot BEFORE creating the new one
-    latest_snapshot=$(find /home/$user/versions -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+    latest_snapshot=\$(find /home/\$user/versions -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
     
     # Create the new snapshot directory
-    mkdir -p "$snapshot_dir"
+    mkdir -p "\$snapshot_dir"
 
-    if [ -n "$latest_snapshot" ] && [ "$latest_snapshot" != "$snapshot_dir" ]; then
+    if [ -n "\$latest_snapshot" ] && [ "\$latest_snapshot" != "\$snapshot_dir" ]; then
         # Use hardlinks from previous snapshot for unchanged files
         # --link-dest requires an absolute path
-        rsync -a --link-dest="$latest_snapshot" "/home/$user/uploads/" "$snapshot_dir/"
+        rsync -a --link-dest="\$latest_snapshot" "/home/\$user/uploads/" "\$snapshot_dir/"
     else
         # First snapshot, no hardlinks
-        rsync -a "/home/$user/uploads/" "$snapshot_dir/"
+        rsync -a "/home/\$user/uploads/" "\$snapshot_dir/"
     fi
 
-    chown -R root:root "$snapshot_dir" || true
-    chmod -R 755 "$snapshot_dir" || true
-    echo "$(date '+%F %T') Incremental snapshot created for $user at $timestamp due to $event" >> "$LOG"
+    chown -R root:root "\$snapshot_dir" || true
+    chmod -R 755 "\$snapshot_dir" || true
+    echo "\$(date '+%F %T') Incremental snapshot created for \$user at \$timestamp due to \$event" >> "\$LOG"
     # record last snapshot time
-    date +%s > "$lastfile" 2>/dev/null || true
+    date +%s > "\$lastfile" 2>/dev/null || true
 done
 EOF
 
