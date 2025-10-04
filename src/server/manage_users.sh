@@ -244,18 +244,29 @@ info_user() {
     echo "Home: $home_dir"
     echo ""
     
-    # Disk usage
-    local actual_size=$(get_actual_size "$home_dir")
-    local apparent_size=$(get_apparent_size "$home_dir")
-    local uploads_size=$(get_actual_size "$home_dir/uploads")
-    local versions_size=$(get_actual_size "$home_dir/versions")
+    # Disk usage - check if directories have actual files first
+    local has_files=0
+    if [ -n "$(find "$home_dir/uploads" -type f 2>/dev/null | head -1)" ] || \
+       [ -n "$(find "$home_dir/versions" -type f 2>/dev/null | head -1)" ]; then
+        has_files=1
+    fi
     
-    echo "Disk Usage:"
-    echo "  Total (actual):     ${actual_size} MB"
-    echo "  Total (apparent):   ${apparent_size} MB"
-    echo "  Uploads:            ${uploads_size} MB"
-    echo "  Versions:           ${versions_size} MB"
-    echo "  Space saved:        $((apparent_size - actual_size)) MB (via hardlinks)"
+    if [ "$has_files" -eq 1 ]; then
+        local actual_size=$(get_actual_size "$home_dir")
+        local apparent_size=$(get_apparent_size "$home_dir")
+        local uploads_size=$(get_actual_size "$home_dir/uploads")
+        local versions_size=$(get_actual_size "$home_dir/versions")
+        
+        echo "Disk Usage:"
+        echo "  Total (actual):     ${actual_size} MB"
+        echo "  Total (apparent):   ${apparent_size} MB"
+        echo "  Uploads:            ${uploads_size} MB"
+        echo "  Versions:           ${versions_size} MB"
+        echo "  Space saved:        $((apparent_size - actual_size)) MB (via hardlinks)"
+    else
+        echo "Disk Usage:"
+        echo "  No files uploaded yet (0 MB)"
+    fi
     echo ""
     
     # Snapshot statistics
