@@ -227,13 +227,19 @@ while read path event; do
     
     timestamp=$(date +%Y-%m-%d_%H-%M-%S)
     snapshot_dir="/home/$user/versions/$timestamp"
+    
+    # Find the latest snapshot BEFORE creating the new one
+    latest_snapshot=$(find /home/$user/versions -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+    
+    # Create the new snapshot directory
     mkdir -p "$snapshot_dir"
 
-    latest_snapshot=$(ls -d /home/$user/versions/* 2>/dev/null | sort | tail -1)
-
-    if [ -n "$latest_snapshot" ]; then
+    if [ -n "$latest_snapshot" ] && [ "$latest_snapshot" != "$snapshot_dir" ]; then
+        # Use hardlinks from previous snapshot for unchanged files
+        # --link-dest requires an absolute path
         rsync -a --link-dest="$latest_snapshot" "/home/$user/uploads/" "$snapshot_dir/"
     else
+        # First snapshot, no hardlinks
         rsync -a "/home/$user/uploads/" "$snapshot_dir/"
     fi
 
