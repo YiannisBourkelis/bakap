@@ -78,24 +78,27 @@ get_backup_users() {
     echo -e "${primary_users}\n${supp_users}" | grep -v '^$' | sort -u
 }
 
-# Calculate actual disk usage (counting hardlinks only once)
+# Calculate actual disk usage (counting hardlinks only once) in MB with decimals
 get_actual_size() {
     local path="$1"
     if [ -d "$path" ]; then
-        # Use du with -l to count hardlinks only once
-        du -sLm "$path" 2>/dev/null | awk '{print $1}'
+        # Use du in KB and convert to MB with 2 decimal places
+        local kb=$(du -sLk "$path" 2>/dev/null | awk '{print $1}')
+        echo "scale=2; $kb / 1024" | bc
     else
-        echo "0"
+        echo "0.00"
     fi
 }
 
-# Calculate apparent size (what ls -l would show)
+# Calculate apparent size (what ls -l would show) in MB with decimals
 get_apparent_size() {
     local path="$1"
     if [ -d "$path" ]; then
-        du -sm --apparent-size "$path" 2>/dev/null | awk '{print $1}'
+        # Use du in KB and convert to MB with 2 decimal places
+        local kb=$(du -sk --apparent-size "$path" 2>/dev/null | awk '{print $1}')
+        echo "scale=2; $kb / 1024" | bc
     else
-        echo "0"
+        echo "0.00"
     fi
 }
 
@@ -146,8 +149,8 @@ list_users() {
         return
     fi
     
-    local total_actual=0
-    local total_apparent=0
+    local total_actual="0.00"
+    local total_apparent="0.00"
     local total_users=0
     local now=$(date +%s)
     local warn_threshold=$((15 * 86400))  # 15 days in seconds
@@ -201,8 +204,9 @@ list_users() {
             printf "%-15s %10s %10s %8s %12s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$last_date" "$status"
         fi
         
-        total_actual=$((total_actual + actual_size))
-        total_apparent=$((total_apparent + apparent_size))
+        # Sum up totals using bc for decimal arithmetic
+        total_actual=$(echo "$total_actual + $actual_size" | bc)
+        total_apparent=$(echo "$total_apparent + $apparent_size" | bc)
         total_users=$((total_users + 1))
     done <<< "$users"
     
@@ -256,16 +260,17 @@ info_user() {
         local apparent_size=$(get_apparent_size "$home_dir")
         local uploads_size=$(get_actual_size "$home_dir/uploads")
         local versions_size=$(get_actual_size "$home_dir/versions")
+        local space_saved=$(echo "$apparent_size - $actual_size" | bc)
         
         echo "Disk Usage:"
         echo "  Total (actual):     ${actual_size} MB"
         echo "  Total (apparent):   ${apparent_size} MB"
         echo "  Uploads:            ${uploads_size} MB"
         echo "  Versions:           ${versions_size} MB"
-        echo "  Space saved:        $((apparent_size - actual_size)) MB (via hardlinks)"
+        echo "  Space saved:        ${space_saved} MB (via hardlinks)"
     else
         echo "Disk Usage:"
-        echo "  No files uploaded yet (0 MB)"
+        echo "  No files uploaded yet (0.00 MB)"
     fi
     echo ""
     
