@@ -217,6 +217,14 @@ while read path event; do
     fi
     # wait a short moment to let other file operations settle
     sleep "$SLEEP_SECONDS"
+    
+    # Check if uploads directory has any files before creating snapshot
+    if [ -z "$(ls -A "/home/$user/uploads" 2>/dev/null)" ]; then
+        echo "$(date '+%F %T') Skipping snapshot for $user: uploads directory is empty" >> "$LOG"
+        date +%s > "$lastfile" 2>/dev/null || true
+        continue
+    fi
+    
     timestamp=$(date +%Y-%m-%d_%H-%M-%S)
     snapshot_dir="/home/$user/versions/$timestamp"
     mkdir -p "$snapshot_dir"
