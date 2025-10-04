@@ -195,37 +195,50 @@ put "$LocalPath" "$DestPath"
   }
   
   # Monitor job output for completion indicators
-  $shouldTerminate = $false
-  $hangDetectTime = $null
-  $timeout = 300  # 5 minutes max
-  $elapsed = 0
+  $lastOutputTime = Get-Date
+  $noOutputTimeout = 60  # 60 seconds of no output = potential hang
+  $maxTimeout = 86400  # 24 hours absolute maximum (for very large files)
+  $startTime = Get-Date
   
-  while ($job.State -eq 'Running' -and $elapsed -lt $timeout) {
+  while ($job.State -eq 'Running') {
     $output = Receive-Job $job 2>&1
     if ($output) {
       foreach ($line in $output) {
         Write-Host $line
-        # Detect completion conditions that may cause hang
-        if ($line -match "Nothing to synchronize" -or $line -match "100%") {
-          $shouldTerminate = $true
-          $hangDetectTime = Get-Date
-        }
+        $lastOutputTime = Get-Date
       }
     }
     
-    # If we saw a completion indicator more than 3 seconds ago, stop the job
-    if ($shouldTerminate -and $hangDetectTime -and ((Get-Date) - $hangDetectTime).TotalSeconds -gt 3) {
-      Write-Host "Transfer completed, terminating WinSCP process..."
+    $elapsed = ((Get-Date) - $startTime).TotalSeconds
+    $idleTime = ((Get-Date) - $lastOutputTime).TotalSeconds
+    
+    # Check for absolute timeout
+    if ($elapsed -gt $maxTimeout) {
+      Write-Host "Maximum timeout reached ($maxTimeout seconds), terminating..."
       Stop-Job $job -ErrorAction SilentlyContinue
-      # Also kill any WinSCP processes
       Get-Process | Where-Object { $_.Name -like "*winscp*" } | ForEach-Object { 
         try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {}
       }
-      break
+      Write-Err "Upload timed out after $maxTimeout seconds"
+      exit 1
+    }
+    
+    # Check for hang (no output for extended period)
+    if ($idleTime -gt $noOutputTimeout) {
+      Write-Host "No output for $noOutputTimeout seconds, checking if process is hung..."
+      # Give it a few more seconds to complete gracefully
+      Start-Sleep -Seconds 5
+      if ($job.State -eq 'Running') {
+        Write-Host "Process appears hung, terminating..."
+        Stop-Job $job -ErrorAction SilentlyContinue
+        Get-Process | Where-Object { $_.Name -like "*winscp*" } | ForEach-Object { 
+          try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {}
+        }
+        break
+      }
     }
     
     Start-Sleep -Milliseconds 500
-    $elapsed++
   }
   
   # Get any remaining output
