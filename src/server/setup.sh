@@ -18,7 +18,7 @@ apt update && apt upgrade -y
 
 # Install required packages
 echo "Installing required packages..."
-apt install -y openssh-server pwgen cron inotify-tools rsync fail2ban
+apt install -y openssh-server pwgen cron inotify-tools rsync fail2ban bc coreutils
 
 # Create backup users group
 echo "Creating backupusers group..."
