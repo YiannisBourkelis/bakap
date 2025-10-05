@@ -724,7 +724,7 @@ cleanup_user() {
     
     # Calculate space after cleanup
     local size_after=$(get_actual_size "$versions_dir")
-    local space_freed=$((size_before - size_after))
+    local space_freed=$(echo "$size_before - $size_after" | bc)
     
     echo "Cleanup complete for user '$username'"
     echo "Space before: ${size_before} MB"
