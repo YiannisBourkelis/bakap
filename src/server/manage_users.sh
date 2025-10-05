@@ -260,13 +260,18 @@ info_user() {
         local apparent_size=$(get_apparent_size "$home_dir")
         local uploads_size=$(get_actual_size "$home_dir/uploads")
         local versions_size=$(get_actual_size "$home_dir/versions")
-        local space_saved=$(echo "$apparent_size - $actual_size" | bc)
+        
+        # Calculate space saved by hardlinks in versions directory
+        local versions_actual=$(get_actual_size "$home_dir/versions")
+        local versions_apparent=$(get_apparent_size "$home_dir/versions")
+        local space_saved=$(echo "$versions_apparent - $versions_actual" | bc)
         
         echo "Disk Usage:"
         echo "  Total (actual):     ${actual_size} MB"
         echo "  Total (apparent):   ${apparent_size} MB"
         echo "  Uploads:            ${uploads_size} MB"
-        echo "  Versions:           ${versions_size} MB"
+        echo "  Versions (actual):  ${versions_actual} MB"
+        echo "  Versions (apparent): ${versions_apparent} MB"
         echo "  Space saved:        ${space_saved} MB (via hardlinks)"
     else
         echo "Disk Usage:"
