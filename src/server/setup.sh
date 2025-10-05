@@ -260,12 +260,16 @@ while read path event; do
     if [ -n "\$latest_snapshot" ] && [ "\$latest_snapshot" != "\$snapshot_dir" ]; then
         # Use hardlinks from previous snapshot for unchanged files
         # --link-dest requires an absolute path
-        rsync -a --link-dest="\$latest_snapshot" "/home/\$user/uploads/" "\$snapshot_dir/"
+        # --no-perms --no-owner --no-group: Ignore permission/ownership differences when comparing files
+        #   This allows hardlinks to work even after we chmod the previous snapshot to 755
+        rsync -a --no-perms --no-owner --no-group --link-dest="\$latest_snapshot" "/home/\$user/uploads/" "\$snapshot_dir/"
     else
         # First snapshot, no hardlinks
         rsync -a "/home/\$user/uploads/" "\$snapshot_dir/"
     fi
 
+    # Set root ownership and standardize permissions for security
+    # Files owned by root cannot be modified/deleted by backup users (ransomware protection)
     chown -R root:root "\$snapshot_dir" || true
     chmod -R 755 "\$snapshot_dir" || true
     echo "\$(date '+%F %T') Incremental snapshot created for \$user at \$timestamp due to \$event" >> "\$LOG"
