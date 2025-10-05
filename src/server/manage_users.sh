@@ -90,13 +90,18 @@ get_actual_size() {
     fi
 }
 
-# Calculate apparent size (what ls -l would show) in MB with decimals
+# Calculate apparent size (sum of all file sizes, counting hardlinks multiple times) in MB with decimals
 get_apparent_size() {
     local path="$1"
     if [ -d "$path" ]; then
-        # Use du in KB and convert to MB with 2 decimal places
-        local kb=$(du -sk --apparent-size "$path" 2>/dev/null | awk '{print $1}')
-        echo "scale=2; $kb / 1024" | bc
+        # Sum all file sizes using stat (counts each directory entry, even hardlinks)
+        local bytes=$(find "$path" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        if [ "$bytes" -eq 0 ]; then
+            echo "0.00"
+        else
+            # Convert bytes to MB with 2 decimal places
+            echo "scale=2; $bytes / 1024 / 1024" | bc
+        fi
     else
         echo "0.00"
     fi
