@@ -151,7 +151,7 @@ This ensures clients always use the latest security fixes and features.
 Bakap includes cross-platform client scripts for easy file uploads:
 
 #### Windows Client (`src/client/windows/upload.ps1`)
-PowerShell script with hash-based skipping and WinSCP/pscp support:
+PowerShell script with hash-based skipping and WinSCP support:
 ```powershell
 # Upload a file
 .\upload.ps1 -LocalPath "C:\data\file.txt" -User backupuser -Password "pass" -Server backup.example.com
@@ -174,9 +174,10 @@ PowerShell script with hash-based skipping and WinSCP/pscp support:
 
 **Features:**
 - SHA-256 hash checking to skip unchanged files
-- Automatic WinSCP/pscp detection
+- Automatic WinSCP detection
 - Process monitoring to prevent hanging
 - Support for both files and directories
+- Mirror mode: Deleted local files are also deleted from remote backup
 
 #### Linux Client (`src/client/linux/upload.sh`)
 Bash script with lftp/sftp support and named parameters:
@@ -368,7 +369,7 @@ Installing Backup Configuration
 [OK] Created secure credentials file: C:\ProgramData\bakap-credentials\web-backup.xml
 [OK] Created backup script: C:\Program Files\bakap-backup\backup-web-backup.ps1
 [OK] Created scheduled task: Bakap-Backup-web-backup
-[OK] WinSCP found (recommended)
+[OK] WinSCP found
 
 ==========================================
 Setup Complete!
@@ -413,9 +414,8 @@ Windows Scheduled Task:
 - Windows Server 2008 R2 or later (PowerShell 2.0+)
 - Administrator privileges
 - `upload.ps1` script (in same directory or specify custom path)
-- WinSCP (recommended) or PuTTY (pscp.exe) in PATH
+- WinSCP in PATH or specify path with `-WinSCPPath` parameter
   - Download WinSCP: https://winscp.net/
-  - Download PuTTY: https://www.chiark.greenend.org.uk/~sgtatham/putty/
 
 **Multiple backup jobs:** Run the script multiple times to configure different backup jobs. Each gets its own scheduled task, credentials, logs, and schedule.
 
@@ -638,10 +638,34 @@ Both client scripts support configuration via command-line parameters. For autom
 If you prefer to manually configure scheduled backups:
 
 **Windows - Task Scheduler (PowerShell):**
+
+Basic (WinSCP in PATH):
 ```powershell
 # Method 1: Using PowerShell cmdlets (Windows Server 2012+, recommended)
 $action = New-ScheduledTaskAction -Execute "PowerShell.exe" `
-    -Argument "-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password 'SecurePass123!' -Server backup.example.com -DestPath /uploads"
+    -Argument "-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password 'SecurePass123!' -Server backup.example.com -DestPath uploads"
+
+$trigger = New-ScheduledTaskTrigger -Daily -At 2:00AM
+
+$settings = New-ScheduledTaskSettingsSet `
+    -StartWhenAvailable `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -RunOnlyIfNetworkAvailable
+
+Register-ScheduledTask -TaskName "Bakap-Daily-Backup" `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings `
+    -User "NT AUTHORITY\SYSTEM" `
+    -RunLevel Highest `
+    -Description "Daily backup to bakap server"
+```
+
+With custom WinSCP path and host key verification:
+```powershell
+$action = New-ScheduledTaskAction -Execute "PowerShell.exe" `
+    -Argument "-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password 'SecurePass123!' -Server backup.example.com -DestPath uploads -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com' -ExpectedHostFingerprint 'ssh-ed25519 255 AAAA...'"
 
 $trigger = New-ScheduledTaskTrigger -Daily -At 2:00AM
 
@@ -668,9 +692,13 @@ Register-ScheduledTask -TaskName "Bakap-Daily-Backup" `
 5. Start time: Set your desired backup time (e.g., 2:00 AM), click **Next**
 6. Action: Select **Start a program**, click **Next**
 7. Program/script: `PowerShell.exe`
-8. Add arguments:
+8. Add arguments (basic - WinSCP in PATH):
    ```
-   -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "C:\bakap\src\client\windows\upload.ps1" -LocalPath "C:\Data" -Username "backupuser" -Password "SecurePass123!" -Server "backup.example.com" -DestPath "/uploads"
+   -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "C:\bakap\src\client\windows\upload.ps1" -LocalPath "C:\Data" -Username "backupuser" -Password "SecurePass123!" -Server "backup.example.com" -DestPath "uploads"
+   ```
+   **Or with custom WinSCP path and host key verification:**
+   ```
+   -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "C:\bakap\src\client\windows\upload.ps1" -LocalPath "C:\Data" -Username "backupuser" -Password "SecurePass123!" -Server "backup.example.com" -DestPath "uploads" -WinSCPPath "C:\Program Files\WinSCP\WinSCP.com" -ExpectedHostFingerprint "ssh-ed25519 255 AAAA..."
    ```
 9. Click **Next**, then **Finish**
 10. Right-click the task, select **Properties**
@@ -684,8 +712,15 @@ Register-ScheduledTask -TaskName "Bakap-Daily-Backup" `
 13. Click **OK**
 
 **Windows - Legacy schtasks.exe (Windows Server 2008 R2):**
+
+Basic (WinSCP in PATH):
 ```cmd
-schtasks /Create /SC DAILY /TN "Bakap-Daily-Backup" /TR "PowerShell.exe -ExecutionPolicy Bypass -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password SecurePass123! -Server backup.example.com -DestPath /uploads" /ST 02:00 /RU SYSTEM /RL HIGHEST
+schtasks /Create /SC DAILY /TN "Bakap-Daily-Backup" /TR "PowerShell.exe -ExecutionPolicy Bypass -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password SecurePass123! -Server backup.example.com -DestPath uploads" /ST 02:00 /RU SYSTEM /RL HIGHEST
+```
+
+With custom WinSCP path and host key verification:
+```cmd
+schtasks /Create /SC DAILY /TN "Bakap-Daily-Backup" /TR "PowerShell.exe -ExecutionPolicy Bypass -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password SecurePass123! -Server backup.example.com -DestPath uploads -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com' -ExpectedHostFingerprint 'ssh-ed25519 255 AAAA...'" /ST 02:00 /RU SYSTEM /RL HIGHEST
 ```
 
 **Linux - Cron Job:**
