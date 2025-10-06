@@ -59,26 +59,67 @@ param(
 $DestPath = $DestPath.TrimStart('/','\')
 if ([string]::IsNullOrEmpty($DestPath) -or [string]::IsNullOrEmpty($DestPath.Trim())) { $DestPath = 'uploads' }
 
-function Write-Err([string]$m){ Write-Host $m -ForegroundColor Red }
+# Set up logging
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $scriptDir) { $scriptDir = $PWD.Path }
+$logFile = Join-Path $scriptDir "upload_log.txt"
+$ErrorActionPreference = "Continue"
+
+function Write-Log([string]$msg) {
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMsg = "[$timestamp] $msg"
+    try {
+        Add-Content -Path $logFile -Value $logMsg -ErrorAction SilentlyContinue
+    } catch {}
+    Write-Host $msg
+}
+
+function Write-Err([string]$m){ 
+    Write-Log "ERROR: $m"
+    Write-Host $m -ForegroundColor Red 
+}
+
+Write-Log "=========================================="
+Write-Log "Backup script started"
+Write-Log "Running as user: $env:USERNAME"
+Write-Log "User domain: $env:USERDOMAIN"
+Write-Log "Script path: $($MyInvocation.MyCommand.Path)"
+Write-Log "Parameters:"
+Write-Log "  LocalPath: $LocalPath"
+Write-Log "  Username: $Username"
+Write-Log "  Server: $Server"
+Write-Log "  DestPath: $DestPath"
+Write-Log "  WinSCPPath: $WinSCPPath"
+Write-Log "  ExpectedHostFingerprint: $(if($ExpectedHostFingerprint){'<provided>'}else{'<not provided>'})"
+Write-Log "  LogDebug: $($LogDebug.IsPresent)"
+Write-Log "  Force: $($Force.IsPresent)"
+
+# Host fingerprint cache directory
+$hostKeyCacheDir = "$env:ProgramData\bakap-hostkeys"
+$hostKeyCacheFile = "$hostKeyCacheDir\$Server.txt"
 
 if (-not (Test-Path -LiteralPath $LocalPath)) {
     Write-Err "Local path does not exist: $LocalPath"
     exit 3
 }
 
-Write-Host "Uploading '$LocalPath' as user '$Username' to ${Server}:$DestPath"
+Write-Log "Uploading '$LocalPath' as user '$Username' to ${Server}:$DestPath"
 
 # Find WinSCP.com
+Write-Log "Searching for WinSCP.com..."
 $winscp = $null
 # Use user-specified WinSCPPath if provided and validate it
 if (-not ([string]::IsNullOrEmpty($WinSCPPath) -or [string]::IsNullOrEmpty($WinSCPPath.Trim()))) {
+  Write-Log "Checking provided WinSCPPath: $WinSCPPath"
   if (Test-Path $WinSCPPath) {
     $winscp = $WinSCPPath
+    Write-Log "Found WinSCP at provided path: $winscp"
     # If .exe provided, try to use .com instead (console version)
     if ($winscp.EndsWith(".exe")) {
       $comPath = $winscp -replace "\.exe$", ".com"
       if (Test-Path $comPath) {
         $winscp = $comPath
+        Write-Log "Using .com version instead: $winscp"
       }
     }
   } else {
@@ -87,12 +128,22 @@ if (-not ([string]::IsNullOrEmpty($WinSCPPath) -or [string]::IsNullOrEmpty($WinS
   }
 }
 if (-not $winscp) {
+  Write-Log "Searching for WinSCP.com in PATH..."
   try { $winscp = (Get-Command WinSCP.com -ErrorAction SilentlyContinue).Source } catch { $winscp = $null }
+  if ($winscp) { Write-Log "Found in PATH: $winscp" }
 }
 if (-not $winscp) {
+  Write-Log "Searching in common install locations..."
   # try common install locations
   $possible = @("$env:ProgramFiles\WinSCP\WinSCP.com", "$env:ProgramFiles(x86)\WinSCP\WinSCP.com")
-  foreach ($p in $possible) { if (Test-Path $p) { $winscp = $p; break } }
+  foreach ($p in $possible) { 
+    Write-Log "Checking: $p"
+    if (Test-Path $p) { 
+      $winscp = $p
+      Write-Log "Found at: $winscp"
+      break 
+    }
+  }
 }
 
 # If not Force and LocalPath is a file, check if remote file has same hash (only if WinSCP is available)
@@ -128,13 +179,31 @@ if (-not $Force.IsPresent -and $winscp -and -not ((Test-Path -LiteralPath $Local
 }
 
 if ($winscp) {
-    Write-Host "Using WinSCP: $winscp"
-    # Build WinSCP script contents
-  if ($ExpectedHostFingerprint -ne "") {
-    $hostKeyOpt = "-hostkey=`"$ExpectedHostFingerprint`""
-  } else {
+    Write-Log "Using WinSCP: $winscp"
+    
+    # Handle host fingerprint caching
     $hostKeyOpt = ""
-  }
+    $captureFingerprint = $false
+    
+    if ($ExpectedHostFingerprint -ne "") {
+        # User provided fingerprint explicitly - use it
+        Write-Log "Using provided host fingerprint"
+        $hostKeyOpt = "-hostkey=`"$ExpectedHostFingerprint`""
+    } else {
+        # Check if we have a cached fingerprint for this server
+        Write-Log "Checking for cached fingerprint: $hostKeyCacheFile"
+        if (Test-Path $hostKeyCacheFile) {
+            $cachedFingerprint = Get-Content $hostKeyCacheFile -ErrorAction SilentlyContinue
+            if ($cachedFingerprint) {
+                Write-Log "Using cached host fingerprint for $Server"
+                $hostKeyOpt = "-hostkey=`"$cachedFingerprint`""
+            }
+        } else {
+            # First connection - we'll capture and cache the fingerprint
+            Write-Log "First connection to $Server - will capture and cache host fingerprint"
+            $captureFingerprint = $true
+        }
+    }
 
   # Prepare WinSCP script file
   $winscpScript = [System.IO.Path]::GetTempFileName()
@@ -167,7 +236,12 @@ put "$LocalPath" "$DestPath"
   }
 
   # Build script file: open, optional pre-commands, put, close, exit
-  $sb = "open sftp://$Username@${Server}/ -password=`"$Password`" $hostKeyOpt`r`n"
+  # If capturing fingerprint, add "-hostkey=`"*`"" to accept any key on first connection
+  if ($captureFingerprint) {
+    $sb = "open sftp://$Username@${Server}/ -password=`"$Password`" -hostkey=`"*`"`r`n"
+  } else {
+    $sb = "open sftp://$Username@${Server}/ -password=`"$Password`" $hostKeyOpt`r`n"
+  }
   if ($preCmds -ne "") { $sb += "$preCmds`r`n" }
   $sb += "$putCmd`r`n"
   $sb += "close`r`n"
@@ -186,12 +260,15 @@ put "$LocalPath" "$DestPath"
     $LASTEXITCODE
   }
   
-  if ($LogDebug.IsPresent) {
-    $logFile = [System.IO.Path]::GetTempFileName()
-    Write-Host "Debug mode: WinSCP raw log will be saved to $logFile"
-    $job = Start-Job -ScriptBlock $jobScript -ArgumentList $winscp,$winscpScript,$logFile
+  # Always create log file if capturing fingerprint (needed to extract fingerprint from log)
+  if ($LogDebug.IsPresent -or $captureFingerprint) {
+    $winscpLogFile = [System.IO.Path]::GetTempFileName()
+    if ($LogDebug.IsPresent) {
+      Write-Log "Debug mode: WinSCP raw log will be saved to $winscpLogFile"
+    }
+    $job = Start-Job -ScriptBlock $jobScript -ArgumentList $winscp,$winscpScript,$winscpLogFile
   } else {
-    $logFile = $null
+    $winscpLogFile = $null
     $job = Start-Job -ScriptBlock $jobScript -ArgumentList $winscp,$winscpScript,$null
   }
   
@@ -240,16 +317,56 @@ put "$LocalPath" "$DestPath"
   $rc = if ($job.State -eq 'Completed') { Receive-Job $job } else { 0 }
   Remove-Job $job -Force -ErrorAction SilentlyContinue
   
-  if ($LogDebug.IsPresent -and $logFile) {
-    Write-Host "WinSCP log: $logFile"
+  # If we captured fingerprint on first connection, extract and cache it
+  if ($captureFingerprint -and $rc -eq 0 -and $winscpLogFile) {
+    # Parse WinSCP log to extract the host key
+    $logContent = Get-Content $winscpLogFile -ErrorAction SilentlyContinue
+    $fingerprintLine = $logContent | Select-String -Pattern "Server's host key fingerprint is:" | Select-Object -First 1
+    if ($fingerprintLine) {
+        # Extract fingerprint (format: "Server's host key fingerprint is: ssh-rsa 2048 aa:bb:cc...")
+        $fingerprint = ($fingerprintLine -replace ".*Server's host key fingerprint is:\s*", "").Trim()
+        if ($fingerprint) {
+            # Ensure cache directory exists with proper permissions
+            if (-not (Test-Path $hostKeyCacheDir)) {
+                New-Item -ItemType Directory -Path $hostKeyCacheDir -Force | Out-Null
+                # Set permissions: Administrators and SYSTEM only
+                $acl = Get-Acl $hostKeyCacheDir
+                $acl.SetAccessRuleProtection($true, $false)
+                $adminRule = New-Object System.Security.AccessControl.FileSystemAccessRule("BUILTIN\Administrators", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+                $systemRule = New-Object System.Security.AccessControl.FileSystemAccessRule("NT AUTHORITY\SYSTEM", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+                $acl.AddAccessRule($adminRule)
+                $acl.AddAccessRule($systemRule)
+                Set-Acl -Path $hostKeyCacheDir -AclObject $acl
+            }
+            
+            # Save fingerprint to cache file
+            Set-Content -Path $hostKeyCacheFile -Value $fingerprint -Force
+            Write-Log "Cached host fingerprint for $Server`: $fingerprint"
+            Write-Log "Future connections will verify against this fingerprint."
+        }
+    }
+    
+    # Clean up temporary log file if we only created it for fingerprint capture
+    if (-not $LogDebug.IsPresent -and $winscpLogFile) {
+        Remove-Item -Force $winscpLogFile -ErrorAction SilentlyContinue
+    }
+  } elseif ($LogDebug.IsPresent -and $winscpLogFile) {
+    Write-Log "WinSCP log: $winscpLogFile"
   }
   
   Remove-Item -Force $winscpScript -ErrorAction SilentlyContinue
-  if ($rc -ne 0) { Write-Err "WinSCP failed with exit code $rc"; exit $rc }
-  Write-Host "Upload finished."
+  if ($rc -ne 0) { 
+    Write-Err "WinSCP failed with exit code $rc"
+    Write-Log "Script exiting with code $rc"
+    exit $rc 
+  }
+  Write-Log "Upload finished successfully."
+  Write-Log "=========================================="
   exit 0
 }
 
 Write-Err "WinSCP.com not found. Please install WinSCP and ensure WinSCP.com is in PATH or use -WinSCPPath parameter."
 Write-Err "Download WinSCP from: https://winscp.net/"
+Write-Log "Script exiting with code 4 (WinSCP not found)"
+Write-Log "=========================================="
 exit 4
