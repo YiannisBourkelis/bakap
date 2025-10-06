@@ -10,6 +10,7 @@
   
   Compatible with Windows Server 2008 R2 and later (PowerShell 2.0+).
   Creates a scheduled task to run daily backups using upload.ps1.
+  Requires WinSCP (WinSCP.com) for SFTP transfers.
   
 .EXAMPLE
   .\setup-client.ps1
@@ -234,7 +235,7 @@ try {
     # Run backup
     Write-Log "Starting upload: `$(`$config.LocalPath) -> `$(`$config.Server):`$(`$config.DestPath)"
     
-    # Build upload command with optional WinSCP/pscp path
+    # Build upload command with optional WinSCP path
     `$uploadArgs = @(
         "-LocalPath", `$config.LocalPath,
         "-Server", `$config.Server,
@@ -247,9 +248,6 @@ try {
         `$uploadArgs += "-WinSCPPath"
         `$uploadArgs += `$config.WinSCPPath
         Write-Log "Using WinSCP at: `$(`$config.WinSCPPath)"
-    } elseif (`$config.PscpPath -and (Test-Path `$config.PscpPath)) {
-        Write-Log "Using pscp.exe at: `$(`$config.PscpPath)"
-        # Note: upload.ps1 will find pscp.exe in PATH, but we log the path here for reference
     }
     
     & PowerShell.exe -ExecutionPolicy Bypass -File `$uploadScript @uploadArgs
@@ -314,12 +312,11 @@ Register-ScheduledTask -TaskName $taskName `
 
 Write-Host "[OK] Created scheduled task: $taskName" -ForegroundColor Green
 
-# Check for WinSCP or pscp in default locations and PATH
+# Check for WinSCP in default locations and PATH
 Write-Host ""
-Write-Host "Checking for SFTP client (WinSCP or PuTTY)..." -ForegroundColor Yellow
+Write-Host "Checking for WinSCP..." -ForegroundColor Yellow
 
 $winscpPath = $null
-$pscpPath = $null
 
 # Check common WinSCP installation paths
 $winscpDefaultPaths = @(
@@ -348,45 +345,17 @@ if (-not $winscpPath) {
     } catch {}
 }
 
-# Check common PuTTY installation paths
-$pscpDefaultPaths = @(
-    "C:\Program Files\PuTTY\pscp.exe",
-    "C:\Program Files (x86)\PuTTY\pscp.exe",
-    "$env:ProgramFiles\PuTTY\pscp.exe",
-    "${env:ProgramFiles(x86)}\PuTTY\pscp.exe"
-)
-
-foreach ($path in $pscpDefaultPaths) {
-    if (Test-Path $path) {
-        $pscpPath = $path
-        Write-Host "[OK] Found PuTTY (pscp.exe) at: $pscpPath" -ForegroundColor Green
-        break
-    }
-}
-
-# If not found in default locations, check PATH
-if (-not $pscpPath) {
-    try {
-        $pscpCmd = Get-Command pscp.exe -ErrorAction SilentlyContinue
-        if ($pscpCmd) {
-            $pscpPath = $pscpCmd.Source
-            Write-Host "[OK] Found PuTTY (pscp.exe) in PATH: $pscpPath" -ForegroundColor Green
-        }
-    } catch {}
-}
-
-# If neither found, prompt user
-if (-not $winscpPath -and -not $pscpPath) {
+# If not found, prompt user
+if (-not $winscpPath) {
     Write-Host ""
-    Write-Host "WARNING: Neither WinSCP nor PuTTY (pscp.exe) found automatically!" -ForegroundColor Yellow
+    Write-Host "WARNING: WinSCP not found automatically!" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "Please choose an option:" -ForegroundColor Yellow
     Write-Host "  1. Specify path to WinSCP.com" -ForegroundColor White
-    Write-Host "  2. Specify path to pscp.exe (PuTTY)" -ForegroundColor White
-    Write-Host "  3. Skip (you'll need to install WinSCP or PuTTY before running backups)" -ForegroundColor White
+    Write-Host "  2. Skip (you'll need to install WinSCP before running backups)" -ForegroundColor White
     Write-Host ""
     
-    $choice = Read-Host "Enter choice (1-3)"
+    $choice = Read-Host "Enter choice (1-2)"
     
     if ($choice -eq '1') {
         do {
@@ -396,35 +365,21 @@ if (-not $winscpPath -and -not $pscpPath) {
             }
         } while (-not (Test-Path $winscpPath))
         Write-Host "[OK] Using WinSCP at: $winscpPath" -ForegroundColor Green
-    } elseif ($choice -eq '2') {
-        do {
-            $pscpPath = Read-Host "Enter the full path to pscp.exe"
-            if (-not (Test-Path $pscpPath)) {
-                Write-Host "ERROR: File not found. Please try again or press Ctrl+C to skip." -ForegroundColor Red
-            }
-        } while (-not (Test-Path $pscpPath))
-        Write-Host "[OK] Using PuTTY (pscp.exe) at: $pscpPath" -ForegroundColor Green
     } else {
         Write-Host ""
-        Write-Host "WARNING: No SFTP client configured!" -ForegroundColor Yellow
-        Write-Host "Please install one of the following before running backups:" -ForegroundColor Yellow
-        Write-Host "  - WinSCP: https://winscp.net/" -ForegroundColor White
-        Write-Host "  - PuTTY: https://www.chiark.greenend.org.uk/~sgtatham/putty/" -ForegroundColor White
+        Write-Host "WARNING: WinSCP not configured!" -ForegroundColor Yellow
+        Write-Host "Please install WinSCP before running backups:" -ForegroundColor Yellow
+        Write-Host "  - Download from: https://winscp.net/" -ForegroundColor White
         Write-Host ""
     }
 }
 
-# Save SFTP client path to credentials file if found
-if ($winscpPath -or $pscpPath) {
+# Save WinSCP path to credentials file if found
+if ($winscpPath) {
     $config = Import-Clixml -Path $credFile
-    if ($winscpPath) {
-        $config['WinSCPPath'] = $winscpPath
-    }
-    if ($pscpPath) {
-        $config['PscpPath'] = $pscpPath
-    }
+    $config['WinSCPPath'] = $winscpPath
     $config | Export-Clixml -Path $credFile
-    Write-Host "[OK] SFTP client path saved to configuration" -ForegroundColor Green
+    Write-Host "[OK] WinSCP path saved to configuration" -ForegroundColor Green
 }
 
 Write-Host ""

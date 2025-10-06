@@ -9,7 +9,7 @@
   https://github.com/YiannisBourkelis/bakap
   
   Compatible with Windows Server 2008 R2 and later (PowerShell 2.0+).
-  Prefers WinSCP (WinSCP.com). If WinSCP is not installed, falls back to PuTTY's pscp.exe.
+  Requires WinSCP (WinSCP.com) for SFTP transfers with synchronization support.
   By default, skips upload if the remote file exists and has the same SHA-256 hash (for single files).
   For directories, uses incremental sync to resume partial transfers and skip identical files (based on size/time).
   Use -Force to overwrite or upload even if identical.
@@ -38,8 +38,8 @@ USAGE
   .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -Server 192.168.1.100 -DestPath uploads/ -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com' -Force
 
 Notes:
-- Install WinSCP and put WinSCP.com in PATH for best results: https://winscp.net/
-- Alternatively install PuTTY (pscp.exe) in PATH.
+- Install WinSCP and put WinSCP.com in PATH: https://winscp.net/
+- WinSCP is required for synchronize functionality (incremental uploads).
 #>
 
 param(
@@ -155,10 +155,10 @@ rm "$DestPath"
     }
   }
 
-  # Use synchronize for directories (incremental sync, no delete), put for files
+  # Use synchronize for directories (incremental sync with delete), put for files
   if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
     $putCmd = @"
-synchronize remote "$LocalPath" "$DestPath"
+synchronize remote -delete "$LocalPath" "$DestPath"
 "@
   } else {
     $putCmd = @"
@@ -166,10 +166,11 @@ put "$LocalPath" "$DestPath"
 "@
   }
 
-  # Build script file: open, optional pre-commands, put, exit
+  # Build script file: open, optional pre-commands, put, close, exit
   $sb = "open sftp://$Username@${Server}/ -password=`"$Password`" $hostKeyOpt`r`n"
   if ($preCmds -ne "") { $sb += "$preCmds`r`n" }
   $sb += "$putCmd`r`n"
+  $sb += "close`r`n"
   $sb += "exit`r`n"
   Set-Content -Path $winscpScript -Value $sb -Encoding ASCII
 
@@ -194,42 +195,31 @@ put "$LocalPath" "$DestPath"
     $job = Start-Job -ScriptBlock $jobScript -ArgumentList $winscp,$winscpScript,$null
   }
   
-  # Monitor job output for completion indicators
-  $lastOutputTime = Get-Date
-  $noOutputTimeout = 60  # 60 seconds of no output = potential hang
-  $maxTimeout = 86400  # 24 hours absolute maximum (for very large files)
-  $startTime = Get-Date
+  # Monitor job output for hang detection
+  # Only trigger if we see "No session." followed by 5 seconds of silence
+  $noSessionDetected = $false
+  $noSessionTime = $null
+  $hangTimeout = 5  # seconds to wait after "No session." before killing
   
   while ($job.State -eq 'Running') {
     $output = Receive-Job $job 2>&1
     if ($output) {
       foreach ($line in $output) {
         Write-Host $line
-        $lastOutputTime = Get-Date
+        # Check if output contains "No session."
+        if ($line -match "No session\.") {
+          $noSessionDetected = $true
+          $noSessionTime = Get-Date
+          Write-Host "Detected 'No session.' - monitoring for hang..."
+        }
       }
     }
     
-    $elapsed = ((Get-Date) - $startTime).TotalSeconds
-    $idleTime = ((Get-Date) - $lastOutputTime).TotalSeconds
-    
-    # Check for absolute timeout
-    if ($elapsed -gt $maxTimeout) {
-      Write-Host "Maximum timeout reached ($maxTimeout seconds), terminating..."
-      Stop-Job $job -ErrorAction SilentlyContinue
-      Get-Process | Where-Object { $_.Name -like "*winscp*" } | ForEach-Object { 
-        try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {}
-      }
-      Write-Err "Upload timed out after $maxTimeout seconds"
-      exit 1
-    }
-    
-    # Check for hang (no output for extended period)
-    if ($idleTime -gt $noOutputTimeout) {
-      Write-Host "No output for $noOutputTimeout seconds, checking if process is hung..."
-      # Give it a few more seconds to complete gracefully
-      Start-Sleep -Seconds 5
-      if ($job.State -eq 'Running') {
-        Write-Host "Process appears hung, terminating..."
+    # If "No session." was detected, check if we've had silence for hangTimeout seconds
+    if ($noSessionDetected -and $noSessionTime) {
+      $silenceDuration = ((Get-Date) - $noSessionTime).TotalSeconds
+      if ($silenceDuration -gt $hangTimeout) {
+        Write-Host "Process hung after 'No session.' message, terminating..."
         Stop-Job $job -ErrorAction SilentlyContinue
         Get-Process | Where-Object { $_.Name -like "*winscp*" } | ForEach-Object { 
           try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {}
@@ -260,62 +250,6 @@ put "$LocalPath" "$DestPath"
   exit 0
 }
 
-# Fallback: pscp (PuTTY's scp). This may or may not be available and scp may be disabled server-side.
-$pscp = $null
-try { $pscp = (Get-Command pscp.exe -ErrorAction SilentlyContinue).Source } catch { $pscp = $null }
-if (-not $pscp) {
-    $possible = @("$env:ProgramFiles\PuTTY\pscp.exe","$env:ProgramFiles(x86)\PuTTY\pscp.exe")
-    foreach ($p in $possible) { if (Test-Path $p) { $pscp = $p; break } }
-}
-
-if ($pscp) {
-    Write-Host "Using pscp: $pscp"
-  # If Force, remove remote target first using sftp batch
-  if ($Force.IsPresent) {
-    $sftpBatch = [System.IO.Path]::GetTempFileName()
-    if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
-      # remove remote directory and recreate
-      $batch = @"
-rm -r $DestPath
-mkdir $DestPath
-bye
-"@
-      Set-Content -Path $sftpBatch -Value $batch -Encoding ASCII
-    } else {
-      $batch = @"
-rm $DestPath
-bye
-"@
-      Set-Content -Path $sftpBatch -Value $batch -Encoding ASCII
-    }
-    # run sftp in batch mode (assumes sftp present)
-    & sftp -b $sftpBatch "$Username@$Server" 2>$null
-    Remove-Item -Force $sftpBatch -ErrorAction SilentlyContinue
-  }
-
-  if ($LogDebug.IsPresent) {
-    $logFile = [System.IO.Path]::GetTempFileName()
-    $remoteTarget = "$Username@${Server}:$DestPath"
-    if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
-      & $pscp -r -pw $Password $LocalPath $remoteTarget 2>&1 | Tee-Object -FilePath $logFile
-    } else {
-      & $pscp -pw $Password $LocalPath $remoteTarget 2>&1 | Tee-Object -FilePath $logFile
-    }
-    $rc = $LASTEXITCODE
-    Write-Host "pscp debug log: $logFile"
-  } else {
-    $remoteTarget = "$Username@${Server}:$DestPath"
-    if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
-      & $pscp -r -pw $Password $LocalPath $remoteTarget
-    } else {
-      & $pscp -pw $Password $LocalPath $remoteTarget
-    }
-    $rc = $LASTEXITCODE
-  }
-  if ($rc -ne 0) { Write-Err "pscp failed with exit code $rc"; exit $rc }
-  Write-Host "Upload finished."
-  exit 0
-}
-
-Write-Err "Neither WinSCP.com nor pscp.exe found. Please install WinSCP (recommended) or PuTTY and ensure the executable is in PATH."
+Write-Err "WinSCP.com not found. Please install WinSCP and ensure WinSCP.com is in PATH or use -WinSCPPath parameter."
+Write-Err "Download WinSCP from: https://winscp.net/"
 exit 4
