@@ -394,6 +394,13 @@ Write-Host "  - Backup script:    $backupScript" -ForegroundColor White
 Write-Host "  - Credentials:      $credFile" -ForegroundColor White
 Write-Host "  - Log file:         $logFile" -ForegroundColor White
 Write-Host "  - Schedule:         Daily at $backupTime" -ForegroundColor White
+Write-Host "  - Runs as:          NT AUTHORITY\SYSTEM" -ForegroundColor White
+Write-Host ""
+Write-Host "Security (TOFU - Trust On First Use):" -ForegroundColor Yellow
+Write-Host "  - First backup: Accepts server key, caches fingerprint" -ForegroundColor White
+Write-Host "  - Later backups: Verifies against cached fingerprint" -ForegroundColor White
+Write-Host "  - Cache location: C:\Windows\System32\config\systemprofile\AppData\Local\bakap\hostkeys\" -ForegroundColor White
+Write-Host "  - If server key changes: Backup will fail with exit code 6" -ForegroundColor White
 Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor Yellow
 Write-Host "  - Test backup now:      PowerShell.exe -ExecutionPolicy Bypass -File `"$backupScript`"" -ForegroundColor White

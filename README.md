@@ -767,6 +767,16 @@ sudo crontab -e
 - On Windows: Credentials stored in `C:\ProgramData\bakap-credentials\` (restricted to Administrators)
 - On Linux: Credentials stored in `/root/.bakap-credentials/` (mode 600)
 
+**Host Key Verification (TOFU - Trust On First Use):**
+- First connection: Script accepts any host key and caches fingerprint in `%LOCALAPPDATA%\bakap\hostkeys\`
+- Subsequent connections: Script verifies server fingerprint against cached value
+- Cache location depends on user running the task:
+  - `NT AUTHORITY\SYSTEM` (recommended): `C:\Windows\System32\config\systemprofile\AppData\Local\bakap\`
+  - Admin user: `C:\Users\<username>\AppData\Local\bakap\`
+- If server key changes (e.g., server reinstall), task will fail with exit code 6
+- To reset trust: Delete the cached fingerprint file and let the script recapture it
+- For paranoid security: Manually provide `-ExpectedHostFingerprint` parameter to bypass TOFU
+
 ## Development
 To modify or extend the scripts:
 - Edit `src/server/setup.sh` for server configuration changes
@@ -785,6 +795,151 @@ To modify or extend the scripts:
 - `/var/backups/scripts/monitor_backups.sh` - Real-time snapshot monitor (created by setup)
 - `/var/backups/scripts/cleanup_snapshots.sh` - Retention policy cleanup (created by setup)
 - `/etc/bakap-retention.conf` - Retention configuration (created by setup)
+
+## Troubleshooting
+
+### Windows Client Issues
+
+**Problem: Scheduled task fails with exit code 6 (fingerprint extraction failed)**
+
+Possible causes:
+1. First run failed to extract host fingerprint from WinSCP log
+2. WinSCP log format changed (report this as a bug)
+
+Solutions:
+```powershell
+# Option 1: Enable debug mode and check logs
+Get-Content "C:\ProgramData\bakap-logs\bakap-<jobname>.log" -Tail 100
+
+# Option 2: Manually provide the expected fingerprint
+# Get fingerprint from server:
+ssh-keyscan -t ed25519 backup.example.com
+
+# Add to credentials file or use -ExpectedHostFingerprint parameter
+```
+
+**Problem: Scheduled task fails after server reinstall/key change**
+
+This is expected behavior! The cached fingerprint no longer matches.
+
+Solution:
+```powershell
+# Delete cached fingerprint to re-establish trust
+Remove-Item "C:\Windows\System32\config\systemprofile\AppData\Local\bakap\hostkeys\backup.example.com.txt"
+
+# Next scheduled run will accept new key and cache it
+```
+
+**Problem: WinSCP hangs after successful upload**
+
+This is a known WinSCP issue with the console version. The script includes hang detection.
+
+Mitigation:
+- Script monitors for "No session." message + 5-second silence
+- Automatically force-kills hung WinSCP processes
+- Upload completes successfully despite hang
+
+**Problem: Task Scheduler shows "Task has not yet run"**
+
+Verify:
+```powershell
+# Check task configuration
+Get-ScheduledTask -TaskName "Bakap-Backup-<jobname>" | Format-List *
+
+# Check task trigger
+Get-ScheduledTask -TaskName "Bakap-Backup-<jobname>" | Select-Object -ExpandProperty Triggers
+
+# Manually trigger task to test
+Start-ScheduledTask -TaskName "Bakap-Backup-<jobname>"
+
+# Check execution history
+Get-ScheduledTask -TaskName "Bakap-Backup-<jobname>" | Get-ScheduledTaskInfo
+```
+
+### Linux Client Issues
+
+**Problem: "lftp: command not found" or "sftp: command not found"**
+
+Solution:
+```bash
+# Install lftp (recommended)
+sudo apt-get install lftp
+
+# Or install openssh-client for sftp
+sudo apt-get install openssh-client
+```
+
+**Problem: "Host key verification failed"**
+
+Solution:
+```bash
+# Accept host key manually first
+ssh-keyscan -H backup.example.com >> ~/.ssh/known_hosts
+
+# Or use --accept-hostkey option in upload script
+./upload.sh -l /data -u user -p pass -s server --accept-hostkey
+```
+
+### Server Issues
+
+**Problem: fail2ban bans legitimate clients**
+
+Check ban status:
+```bash
+sudo fail2ban-client status sshd
+```
+
+Unban IP:
+```bash
+sudo fail2ban-client set sshd unbanip <IP_ADDRESS>
+```
+
+Whitelist trusted IPs (edit `/etc/fail2ban/jail.local`):
+```ini
+[sshd]
+ignoreip = 127.0.0.1/8 ::1 192.168.1.0/24 10.0.0.0/8
+```
+
+**Problem: Snapshots not being created**
+
+Check monitor service:
+```bash
+sudo systemctl status bakap-monitor.service
+sudo journalctl -u bakap-monitor.service -f
+```
+
+Check inotify limits:
+```bash
+# Current limits
+cat /proc/sys/fs/inotify/max_user_watches
+cat /proc/sys/fs/inotify/max_user_instances
+
+# Increase if needed (edit /etc/sysctl.conf)
+fs.inotify.max_user_watches=524288
+fs.inotify.max_user_instances=512
+
+# Apply
+sudo sysctl -p
+```
+
+**Problem: Disk full due to too many snapshots**
+
+Manually trigger cleanup:
+```bash
+sudo /var/backups/scripts/cleanup_snapshots.sh
+```
+
+Adjust retention policy in `/etc/bakap-retention.conf`:
+```bash
+# Reduce retention for all users
+KEEP_DAILY=3
+KEEP_WEEKLY=2
+KEEP_MONTHLY=1
+
+# Or disable advanced retention
+ENABLE_ADVANCED_RETENTION=false
+RETENTION_DAYS=7
+```
 
 ## Contributing
 Contributions are welcome! Before contributing, please review our [Contributing Guide](CONTRIBUTING.md), which includes our Contributor License Agreement (CLA). All contributors must agree to the CLA to have their changes accepted.
