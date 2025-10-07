@@ -59,10 +59,15 @@ param(
 $DestPath = $DestPath.TrimStart('/','\')
 if ([string]::IsNullOrEmpty($DestPath) -or [string]::IsNullOrEmpty($DestPath.Trim())) { $DestPath = 'uploads' }
 
-# Set up logging
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not $scriptDir) { $scriptDir = $PWD.Path }
-$logFile = Join-Path $scriptDir "upload_log.txt"
+# Set up logging and cache directory in LocalAppData
+# This prevents files from appearing in git status if script is run from repo
+$bakapDataDir = Join-Path $env:LOCALAPPDATA "bakap"
+if (-not (Test-Path $bakapDataDir)) {
+    New-Item -ItemType Directory -Path $bakapDataDir -Force | Out-Null
+}
+$logFile = Join-Path $bakapDataDir "upload_log.txt"
+$hostKeyCacheDir = Join-Path $bakapDataDir "hostkeys"
+$hostKeyCacheFile = Join-Path $hostKeyCacheDir "$Server.txt"
 $ErrorActionPreference = "Continue"
 
 function Write-Log([string]$msg) {
@@ -93,10 +98,7 @@ Write-Log "  WinSCPPath: $WinSCPPath"
 Write-Log "  ExpectedHostFingerprint: $(if($ExpectedHostFingerprint){'<provided>'}else{'<not provided>'})"
 Write-Log "  LogDebug: $($LogDebug.IsPresent)"
 Write-Log "  Force: $($Force.IsPresent)"
-
-# Host fingerprint cache directory
-$hostKeyCacheDir = "$env:ProgramData\bakap-hostkeys"
-$hostKeyCacheFile = "$hostKeyCacheDir\$Server.txt"
+Write-Log "Host key cache: $hostKeyCacheFile"
 
 if (-not (Test-Path -LiteralPath $LocalPath)) {
     Write-Err "Local path does not exist: $LocalPath"
@@ -199,9 +201,33 @@ if ($winscp) {
                 $hostKeyOpt = "-hostkey=`"$cachedFingerprint`""
             }
         } else {
-            # First connection - we'll capture and cache the fingerprint
-            Write-Log "First connection to $Server - will capture and cache host fingerprint"
-            $captureFingerprint = $true
+            # First connection - verify we can write to cache directory before proceeding
+            Write-Log "First connection to $Server - verifying cache directory is writable"
+            
+            # Ensure cache directory exists
+            if (-not (Test-Path $hostKeyCacheDir)) {
+                try {
+                    New-Item -ItemType Directory -Path $hostKeyCacheDir -Force | Out-Null
+                    Write-Log "Created host key cache directory: $hostKeyCacheDir"
+                } catch {
+                    Write-Err "Failed to create cache directory: $hostKeyCacheDir - $_"
+                    Write-Err "Cannot cache host fingerprint. Please provide -ExpectedHostFingerprint parameter."
+                    exit 5
+                }
+            }
+            
+            # Test write access
+            $testFile = Join-Path $hostKeyCacheDir "test_write.tmp"
+            try {
+                Set-Content -Path $testFile -Value "test" -ErrorAction Stop
+                Remove-Item -Path $testFile -Force -ErrorAction SilentlyContinue
+                Write-Log "Cache directory is writable, will capture and cache host fingerprint"
+                $captureFingerprint = $true
+            } catch {
+                Write-Err "Cannot write to cache directory: $hostKeyCacheDir - $_"
+                Write-Err "Host fingerprint cannot be cached. Please provide -ExpectedHostFingerprint parameter or fix permissions."
+                exit 5
+            }
         }
     }
 
@@ -319,39 +345,85 @@ put "$LocalPath" "$DestPath"
   
   # If we captured fingerprint on first connection, extract and cache it
   if ($captureFingerprint -and $rc -eq 0 -and $winscpLogFile) {
+    Write-Log "Attempting to extract host fingerprint from WinSCP log: $winscpLogFile"
+    
     # Parse WinSCP log to extract the host key
     $logContent = Get-Content $winscpLogFile -ErrorAction SilentlyContinue
-    $fingerprintLine = $logContent | Select-String -Pattern "Server's host key fingerprint is:" | Select-Object -First 1
-    if ($fingerprintLine) {
-        # Extract fingerprint (format: "Server's host key fingerprint is: ssh-rsa 2048 aa:bb:cc...")
-        $fingerprint = ($fingerprintLine -replace ".*Server's host key fingerprint is:\s*", "").Trim()
+    if ($logContent) {
+        Write-Log "WinSCP log file contains $($logContent.Count) lines"
+        
+        # WinSCP writes "Host key fingerprint is:" on one line, then the actual fingerprint on the next line
+        # Find the line with the header, then get the next line
+        $fingerprint = $null
+        for ($i = 0; $i -lt $logContent.Count; $i++) {
+            if ($logContent[$i] -match "Host key fingerprint is:") {
+                Write-Log "Found fingerprint header at line $($i + 1)"
+                # The actual fingerprint is on the next line
+                if ($i + 1 -lt $logContent.Count) {
+                    $nextLine = $logContent[$i + 1]
+                    Write-Log "Next line: $nextLine"
+                    
+                    # Extract fingerprint from the next line
+                    # Format: ". 2025-10-07 17:13:56.723 ssh-ed25519 255 SHA256:..."
+                    # We want everything after the timestamp
+                    if ($nextLine -match "\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+(.+)") {
+                        $fingerprint = $matches[1].Trim()
+                        Write-Log "Extracted fingerprint: $fingerprint"
+                    } else {
+                        Write-Log "WARNING: Could not extract fingerprint from next line"
+                    }
+                }
+                break
+            }
+        }
+        
         if ($fingerprint) {
-            # Ensure cache directory exists with proper permissions
+            # Ensure cache directory exists
             if (-not (Test-Path $hostKeyCacheDir)) {
+                Write-Log "Creating host key cache directory: $hostKeyCacheDir"
                 New-Item -ItemType Directory -Path $hostKeyCacheDir -Force | Out-Null
-                # Set permissions: Administrators and SYSTEM only
-                $acl = Get-Acl $hostKeyCacheDir
-                $acl.SetAccessRuleProtection($true, $false)
-                $adminRule = New-Object System.Security.AccessControl.FileSystemAccessRule("BUILTIN\Administrators", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
-                $systemRule = New-Object System.Security.AccessControl.FileSystemAccessRule("NT AUTHORITY\SYSTEM", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
-                $acl.AddAccessRule($adminRule)
-                $acl.AddAccessRule($systemRule)
-                Set-Acl -Path $hostKeyCacheDir -AclObject $acl
             }
             
             # Save fingerprint to cache file
+            Write-Log "Saving fingerprint to: $hostKeyCacheFile"
             Set-Content -Path $hostKeyCacheFile -Value $fingerprint -Force
-            Write-Log "Cached host fingerprint for $Server`: $fingerprint"
+            Write-Log "Cached host fingerprint for $Server : $fingerprint"
             Write-Log "Future connections will verify against this fingerprint."
+        } else {
+            Write-Err "SECURITY ERROR: Could not extract host fingerprint from WinSCP log"
+            Write-Log "Showing lines containing 'fingerprint' or 'key' (case-insensitive):"
+            $logContent | Select-String -Pattern "(fingerprint|host key)" -CaseSensitive:$false | Select-Object -First 10 | ForEach-Object { Write-Log "  $_" }
+            Write-Err "Unable to cache host key for future verification. This is a security risk."
+            Write-Err "To proceed, you can either:"
+            Write-Err "  1. Manually provide -ExpectedHostFingerprint parameter with the correct fingerprint"
+            Write-Err "  2. Check WinSCP log and report this issue"
+            if ($LogDebug.IsPresent -and $winscpLogFile) {
+                Write-Log "WinSCP log file: $winscpLogFile"
+            }
+            Write-Log "Script exiting with code 6 (fingerprint extraction failed)"
+            Write-Log "=========================================="
+            exit 6
         }
+    } else {
+        Write-Err "SECURITY ERROR: WinSCP log file is empty or could not be read"
+        Write-Err "Cannot verify host fingerprint for caching. This is a security risk."
+        Write-Err "Please provide -ExpectedHostFingerprint parameter for secure connections."
+        Write-Log "Script exiting with code 6 (fingerprint extraction failed)"
+        Write-Log "=========================================="
+        exit 6
     }
+  } elseif ($captureFingerprint) {
+    Write-Log "WARNING: Fingerprint capture was enabled but conditions not met:"
+    Write-Log "  captureFingerprint: $captureFingerprint"
+    Write-Log "  rc (exit code): $rc"
+    Write-Log "  winscpLogFile: $(if($winscpLogFile){'exists'}else{'null'})"
+  }
     
-    # Clean up temporary log file if we only created it for fingerprint capture
-    if (-not $LogDebug.IsPresent -and $winscpLogFile) {
-        Remove-Item -Force $winscpLogFile -ErrorAction SilentlyContinue
-    }
+  # Clean up temporary log file if we only created it for fingerprint capture
+  if (-not $LogDebug.IsPresent -and $winscpLogFile) {
+      Remove-Item -Force $winscpLogFile -ErrorAction SilentlyContinue
   } elseif ($LogDebug.IsPresent -and $winscpLogFile) {
-    Write-Log "WinSCP log: $winscpLogFile"
+      Write-Log "WinSCP log: $winscpLogFile"
   }
   
   Remove-Item -Force $winscpScript -ErrorAction SilentlyContinue
