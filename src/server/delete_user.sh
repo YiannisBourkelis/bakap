@@ -54,7 +54,7 @@ if [ -d "/home/$USERNAME" ]; then
     # Delete all snapshot subvolumes in versions/
     if [ -d "/home/$USERNAME/versions" ]; then
         echo "  Deleting snapshot subvolumes..."
-        local count=0
+        count=0
         for snapshot in /home/$USERNAME/versions/*; do
             if [ -d "$snapshot" ]; then
                 if btrfs subvolume show "$snapshot" &>/dev/null; then
