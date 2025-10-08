@@ -54,20 +54,30 @@ fi
 chown root:root "/home/$USERNAME"
 chmod 755 "/home/$USERNAME"
 
-# Create directories
-mkdir -p "/home/$USERNAME/uploads"
+# Create Btrfs subvolume for uploads (instead of regular directory)
+echo "Creating Btrfs subvolume for uploads..."
+if btrfs subvolume create "/home/$USERNAME/uploads" >/dev/null; then
+    echo "  ✓ Created uploads subvolume"
+else
+    echo "  ERROR: Failed to create Btrfs subvolume"
+    echo "  Make sure /home is on a Btrfs filesystem"
+    userdel -r "$USERNAME" 2>/dev/null
+    exit 1
+fi
+
+# Create versions directory (regular directory, will contain snapshots)
 mkdir -p "/home/$USERNAME/versions"
 
 # Set permissions
-# uploads should be writable only by the user
+# uploads subvolume should be writable only by the user
 chown "$USERNAME:backupusers" "/home/$USERNAME/uploads"
 chmod 700 "/home/$USERNAME/uploads"
 # versions are root-owned and not writable by the user
-chown root:root "/home/$USERNAME/versions"
+chown root:backupusers "/home/$USERNAME/versions"
 chmod 755 "/home/$USERNAME/versions"
 
 echo "User $USERNAME created successfully."
-echo "Upload directory: /home/$USERNAME/uploads"
-echo "Versions directory: /home/$USERNAME/versions (read-only for user)"
+echo "Upload subvolume: /home/$USERNAME/uploads (Btrfs subvolume)"
+echo "Versions directory: /home/$USERNAME/versions (read-only Btrfs snapshots)"
 echo "Password: $PASSWORD"
-echo "Snapshots will be created automatically on file uploads via inotify monitoring."
+echo "Btrfs snapshots will be created automatically on file uploads via inotify monitoring."

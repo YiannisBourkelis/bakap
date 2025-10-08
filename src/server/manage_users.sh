@@ -704,39 +704,31 @@ cleanup_user() {
     # Calculate space before cleanup
     local size_before=$(get_actual_size "$versions_dir")
     
-    # Create a temporary directory for the new snapshot with actual files
-    local temp_snapshot="${versions_dir}/.cleanup_${latest_name}"
+    # With Btrfs snapshots, we don't need to "consolidate" like with hardlinks
+    # Just remove all old snapshots except the latest
+    echo "Removing $((snapshot_count - 1)) old Btrfs snapshot(s)..."
     
-    echo "Copying actual files from latest snapshot..."
-    mkdir -p "$temp_snapshot"
-    
-    # Copy files, following symlinks to copy actual data
-    rsync -aL "$latest_snapshot/" "$temp_snapshot/" 2>/dev/null || {
-        echo "Error: Failed to copy snapshot data" >&2
-        rm -rf "$temp_snapshot"
-        exit 1
-    }
-    
-    # Remove all old snapshots
-    echo "Removing old snapshots..."
+    local removed=0
     while IFS= read -r snapshot; do
-        if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
-            rm -rf "$snapshot"
+        if [ -n "$snapshot" ] && [ -d "$snapshot" ] && [ "$snapshot" != "$latest_snapshot" ]; then
+            # Check if it's a Btrfs subvolume
+            if btrfs subvolume show "$snapshot" &>/dev/null; then
+                if btrfs subvolume delete "$snapshot" &>/dev/null; then
+                    removed=$((removed + 1))
+                fi
+            else
+                # Fallback for non-subvolume directories
+                rm -rf "$snapshot" && removed=$((removed + 1))
+            fi
         fi
     done <<< "$snapshots"
-    
-    # Rename temp snapshot to latest
-    mv "$temp_snapshot" "$latest_snapshot"
-    
-    # Set proper permissions
-    chown -R root:root "$latest_snapshot"
-    chmod -R 755 "$latest_snapshot"
     
     # Calculate space after cleanup
     local size_after=$(get_actual_size "$versions_dir")
     local space_freed=$(echo "$size_before - $size_after" | bc)
     
     echo "Cleanup complete for user '$username'"
+    echo "Removed $removed old snapshots"
     echo "Space before: ${size_before} MB"
     echo "Space after: ${size_after} MB"
     echo "Space freed: ${space_freed} MB"

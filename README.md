@@ -1,13 +1,13 @@
 # bakap Project
 
 ## Overview
-Bakap is a secure, versioned backup server for Debian Linux. It allows remote clients to upload files or directories using SCP or SFTP, storing them in user-specific folders with real-time incremental versioning for ransomware protection. Even if a client's local machine is infected, the server-side version history remains intact and unmodifiable. Clients can download previous versions of their files. Users are strictly chrooted to their home directories for security.
+Bakap is a secure, versioned backup server for Debian Linux using **Btrfs copy-on-write snapshots**. It allows remote clients to upload files via SFTP, storing them in user-specific folders with real-time incremental versioning for ransomware protection. Even if a client's local machine is infected, the server-side version history remains intact and unmodifiable. Clients can download previous versions of their files. Users are strictly chrooted to their home directories for security.
 
 Key features:
-- Real-time incremental snapshots triggered by filesystem changes.
-- Ransomware protection via immutable, root-owned version history.
-- Strict access control: Users cannot access anything outside their home folder.
-- Efficient storage using hardlinks for unchanged files.
+- **Instant Btrfs snapshots** triggered by filesystem changes (millisecond creation time).
+- **Ransomware protection** via immutable read-only Btrfs snapshots (cannot be modified even by root without explicit command).
+- **Strict access control**: Users cannot access anything outside their home folder.
+- **Superior storage efficiency**: Block-level copy-on-write (only changed blocks consume space).
 
 ## ⚠️ Disclaimer
 
@@ -26,9 +26,40 @@ This software is provided "as is", without warranty of any kind, express or impl
 ## Prerequisites
 
 ### Server Requirements
-- Debian Linux (tested on recent versions)
+- **Debian 13 (Trixie) or later** (requires Linux 6.x kernel for stable Btrfs support)
+- **Btrfs filesystem for /home** (required for snapshot functionality)
 - Root or sudo access for setup
 - OpenSSH server (installed automatically by setup script)
+
+### Setting Up Btrfs During Debian Installation
+During Debian installation, when you reach the partitioning step:
+1. Select **"Manual partitioning"**
+2. Create a separate partition for `/home`
+3. Format it as **Btrfs** filesystem
+4. Or: Use Btrfs for the entire root filesystem (simpler, works fine)
+
+**Example partitioning scheme:**
+```
+/dev/sda1  →  EFI System  →  512 MB
+/dev/sda2  →  ext4        →  / (root)     →  30 GB
+/dev/sda3  →  Btrfs       →  /home        →  remaining space
+/dev/sda4  →  swap        →  8 GB
+```
+
+**Or convert existing system:**
+```bash
+# WARNING: This destroys all data on /home!
+# Backup first: rsync -a /home/ /backup/home/
+
+umount /home
+mkfs.btrfs /dev/sdXY
+mount /dev/sdXY /home
+
+# Update /etc/fstab:
+# UUID=xxx /home btrfs defaults,compress=zstd 0 2
+
+# Restore data: rsync -a /backup/home/ /home/
+```
 
 ### Client Requirements
 - Linux/Unix system (for Linux client) or Windows (for PowerShell client)

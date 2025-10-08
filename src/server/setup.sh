@@ -1,24 +1,60 @@
 #!/bin/bash
 
-# setup.sh - Setup script for Debian backup server with versioning support
+# setup.sh - Setup script for Debian backup server with Btrfs snapshots
 # This script configures a Debian system to allow remote clients to upload files via SCP/SFTP
-# with automatic versioning for ransomware protection.
+# with automatic Btrfs snapshot versioning for ransomware protection.
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
 # https://github.com/YiannisBourkelis/bakap
+#
+# Requirements:
+#   - Debian 13 (Trixie) or later
+#   - Btrfs filesystem for /home
 
 set -e
 
-echo "Starting backup server setup..."
+echo "Starting bakap server setup..."
+echo ""
+
+# Check Btrfs filesystem requirement
+echo "Checking filesystem requirements..."
+if [ ! -d /home ]; then
+    echo "ERROR: /home directory does not exist"
+    exit 1
+fi
+
+HOME_FS=$(df -T /home | tail -1 | awk '{print $2}')
+if [ "$HOME_FS" != "btrfs" ]; then
+    echo ""
+    echo "=========================================="
+    echo "ERROR: Btrfs filesystem required"
+    echo "=========================================="
+    echo ""
+    echo "/home is currently on: $HOME_FS"
+    echo ""
+    echo "Bakap requires Btrfs for efficient snapshot functionality."
+    echo ""
+    echo "To fix this:"
+    echo "  1. Reinstall Debian with Btrfs for /home partition during installation"
+    echo "  2. Or create a Btrfs partition and mount it at /home:"
+    echo "     # mkfs.btrfs /dev/sdXY"
+    echo "     # mount /dev/sdXY /home"
+    echo "     # Add to /etc/fstab for persistence"
+    echo ""
+    exit 1
+fi
+
+echo "✓ Btrfs filesystem detected on /home"
+echo ""
 
 # Update system
 echo "Updating system packages..."
 apt update && apt upgrade -y
 
-# Install required packages
+# Install required packages (removed rsync, added btrfs-progs)
 echo "Installing required packages..."
-apt install -y openssh-server pwgen cron inotify-tools rsync fail2ban bc coreutils
+apt install -y openssh-server pwgen cron inotify-tools btrfs-progs fail2ban bc coreutils
 
 # Create backup users group
 echo "Creating backupusers group..."
@@ -241,7 +277,13 @@ while read path event; do
     # wait a short moment to let other file operations settle
     sleep "\$SLEEP_SECONDS"
     
-    # Check if uploads directory has any files before creating snapshot
+    # Check if uploads subvolume exists and has files
+    if [ ! -d "/home/\$user/uploads" ]; then
+        echo "\$(date '+%F %T') Skipping snapshot for \$user: uploads subvolume does not exist" >> "\$LOG"
+        date +%s > "\$lastfile" 2>/dev/null || true
+        continue
+    fi
+    
     if [ -z "\$(ls -A "/home/\$user/uploads" 2>/dev/null)" ]; then
         echo "\$(date '+%F %T') Skipping snapshot for \$user: uploads directory is empty" >> "\$LOG"
         date +%s > "\$lastfile" 2>/dev/null || true
@@ -249,31 +291,20 @@ while read path event; do
     fi
     
     timestamp=\$(date +%Y-%m-%d_%H-%M-%S)
-    snapshot_dir="/home/\$user/versions/\$timestamp"
+    snapshot_path="/home/\$user/versions/\$timestamp"
     
-    # Find the latest snapshot BEFORE creating the new one
-    latest_snapshot=\$(find /home/\$user/versions -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
-    
-    # Create the new snapshot directory
-    mkdir -p "\$snapshot_dir"
-
-    if [ -n "\$latest_snapshot" ] && [ "\$latest_snapshot" != "\$snapshot_dir" ]; then
-        # Use hardlinks from previous snapshot for unchanged files
-        # --link-dest requires an absolute path
-        # --no-perms --no-owner --no-group: Ignore permission/ownership differences when comparing files
-        #   This allows hardlinks to work even after we chmod the previous snapshot to 755
-        rsync -a --no-perms --no-owner --no-group --link-dest="\$latest_snapshot" "/home/\$user/uploads/" "\$snapshot_dir/"
+    # Create read-only Btrfs snapshot (instant, atomic, space-efficient)
+    # -r flag creates read-only snapshot (ransomware protection - immutable even for root)
+    if btrfs subvolume snapshot -r "/home/\$user/uploads" "\$snapshot_path" >> "\$LOG" 2>&1; then
+        # Set ownership for versions directory (snapshot inherits subvolume permissions)
+        chown root:backupusers "\$snapshot_path" 2>/dev/null || true
+        chmod 755 "\$snapshot_path" 2>/dev/null || true
+        echo "\$(date '+%F %T') Btrfs snapshot created for \$user at \$timestamp due to \$event" >> "\$LOG"
     else
-        # First snapshot, no hardlinks
-        rsync -a "/home/\$user/uploads/" "\$snapshot_dir/"
+        echo "\$(date '+%F %T') ERROR: Failed to create Btrfs snapshot for \$user" >> "\$LOG"
     fi
-
-    # Set root ownership and standardize permissions for security
-    # Files owned by root cannot be modified/deleted by backup users (ransomware protection)
-    chown -R root:root "\$snapshot_dir" || true
-    chmod -R 755 "\$snapshot_dir" || true
-    echo "\$(date '+%F %T') Incremental snapshot created for \$user at \$timestamp due to \$event" >> "\$LOG"
-    # record last snapshot time
+    
+    # Record last snapshot time
     date +%s > "\$lastfile" 2>/dev/null || true
 done
 EOF
@@ -413,8 +444,13 @@ cleanup_by_age() {
     log_msg "Running age-based cleanup (keeping last $RETENTION_DAYS days)"
     local count=0
     while IFS= read -r -d '' snapshot; do
-        rm -rf "$snapshot"
-        count=$((count + 1))
+        # Check if it's a Btrfs subvolume before deleting
+        if btrfs subvolume show "$snapshot" &>/dev/null; then
+            btrfs subvolume delete "$snapshot" &>/dev/null && count=$((count + 1))
+        else
+            # Fallback for non-subvolume directories (shouldn't happen in Btrfs setup)
+            rm -rf "$snapshot" && count=$((count + 1))
+        fi
     done < <(find /home -mindepth 2 -maxdepth 3 -type d -path '*/versions/*' -mtime +$RETENTION_DAYS -print0 2>/dev/null)
     log_msg "Removed $count snapshots older than $RETENTION_DAYS days"
 }
@@ -495,8 +531,13 @@ cleanup_advanced() {
         local removed=0
         for snapshot in "${snapshot_array[@]}"; do
             if [ -z "${keep_snapshots[$snapshot]}" ]; then
-                rm -rf "$snapshot"
-                removed=$((removed + 1))
+                # Check if it's a Btrfs subvolume before deleting
+                if btrfs subvolume show "$snapshot" &>/dev/null; then
+                    btrfs subvolume delete "$snapshot" &>/dev/null && removed=$((removed + 1))
+                else
+                    # Fallback for non-subvolume directories (shouldn't happen)
+                    rm -rf "$snapshot" && removed=$((removed + 1))
+                fi
             fi
         done
         

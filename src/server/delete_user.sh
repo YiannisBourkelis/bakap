@@ -37,8 +37,38 @@ pkill -u "$USERNAME" 2>/dev/null || true
 # Remove the user (without -r since home is owned by root)
 userdel "$USERNAME"
 
-# Manually remove the home directory and all data
+# Delete Btrfs subvolumes and directories
 if [ -d "/home/$USERNAME" ]; then
+    echo "Removing Btrfs subvolumes and data..."
+    
+    # Delete uploads subvolume
+    if [ -d "/home/$USERNAME/uploads" ]; then
+        if btrfs subvolume show "/home/$USERNAME/uploads" &>/dev/null; then
+            echo "  Deleting uploads subvolume..."
+            btrfs subvolume delete "/home/$USERNAME/uploads" >/dev/null 2>&1 || rm -rf "/home/$USERNAME/uploads"
+        else
+            rm -rf "/home/$USERNAME/uploads"
+        fi
+    fi
+    
+    # Delete all snapshot subvolumes in versions/
+    if [ -d "/home/$USERNAME/versions" ]; then
+        echo "  Deleting snapshot subvolumes..."
+        local count=0
+        for snapshot in /home/$USERNAME/versions/*; do
+            if [ -d "$snapshot" ]; then
+                if btrfs subvolume show "$snapshot" &>/dev/null; then
+                    btrfs subvolume delete "$snapshot" >/dev/null 2>&1 && count=$((count + 1))
+                else
+                    rm -rf "$snapshot" && count=$((count + 1))
+                fi
+            fi
+        done
+        [ $count -gt 0 ] && echo "    Deleted $count snapshots"
+        rmdir "/home/$USERNAME/versions" 2>/dev/null || rm -rf "/home/$USERNAME/versions"
+    fi
+    
+    # Remove home directory
     rm -rf "/home/$USERNAME"
 fi
 
