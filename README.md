@@ -95,10 +95,14 @@ mount /dev/sdXY /home
    - IP blocking at firewall level (iptables)
 
 5. Create backup users (run as root for each user):
-   ```
+   ```bash
+   # Create user with auto-generated 64-character password
    sudo ./src/server/create_user.sh <username>
+   
+   # Or provide your own password (must be 30+ chars with lowercase, uppercase, and numbers)
+   sudo ./src/server/create_user.sh <username> -p "YourSecurePassword123456789012345"
    ```
-   This creates a user with a secure random password, sets up directories, and applies restrictions.
+   This creates a user with a secure password, sets up Btrfs subvolumes, and applies restrictions.
 
 ### Client Installation
 

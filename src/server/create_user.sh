@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # create_user.sh - Create a backup user with secure password and versioning setup
-# Usage: ./create_user.sh <username>
+# Usage: ./create_user.sh <username> [-p|--password <password>]
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
@@ -9,12 +9,71 @@
 
 set -e
 
-if [ $# -ne 1 ]; then
-    echo "Usage: $0 <username>"
+# Function to validate password strength
+validate_password() {
+    local password="$1"
+    local length=${#password}
+    
+    # Check minimum length (30 characters)
+    if [ "$length" -lt 30 ]; then
+        echo "ERROR: Password must be at least 30 characters long (provided: $length characters)"
+        return 1
+    fi
+    
+    # Check for lowercase letters
+    if ! echo "$password" | grep -q '[a-z]'; then
+        echo "ERROR: Password must contain at least one lowercase letter"
+        return 1
+    fi
+    
+    # Check for uppercase letters
+    if ! echo "$password" | grep -q '[A-Z]'; then
+        echo "ERROR: Password must contain at least one uppercase letter"
+        return 1
+    fi
+    
+    # Check for numbers
+    if ! echo "$password" | grep -q '[0-9]'; then
+        echo "ERROR: Password must contain at least one number"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Parse command line arguments
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <username> [-p|--password <password>]"
+    echo ""
+    echo "Options:"
+    echo "  -p, --password  Manually specify password (must be 30+ chars with lowercase, uppercase, and numbers)"
+    echo ""
+    echo "If no password is provided, a secure 64-character random password will be generated."
     exit 1
 fi
 
 USERNAME=$1
+PASSWORD=""
+
+# Parse optional password parameter
+shift
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -p|--password)
+            if [ -z "$2" ]; then
+                echo "ERROR: --password requires a value"
+                exit 1
+            fi
+            PASSWORD="$2"
+            shift 2
+            ;;
+        *)
+            echo "ERROR: Unknown parameter: $1"
+            echo "Usage: $0 <username> [-p|--password <password>]"
+            exit 1
+            ;;
+    esac
+done
 
 # Check if user exists
 if id "$USERNAME" &>/dev/null; then
@@ -22,8 +81,18 @@ if id "$USERNAME" &>/dev/null; then
     exit 1
 fi
 
-# Generate secure password
-PASSWORD=$(pwgen -s 64 1)
+# Generate or validate password
+if [ -z "$PASSWORD" ]; then
+    # Generate secure password
+    PASSWORD=$(pwgen -s 64 1)
+    echo "Generated secure password: $PASSWORD"
+else
+    # Validate manually provided password
+    if ! validate_password "$PASSWORD"; then
+        exit 1
+    fi
+    echo "Using provided password (validated: 30+ chars, lowercase, uppercase, numbers)"
+fi
 
 echo "Creating user $USERNAME with password: $PASSWORD"
 # Create user
@@ -79,5 +148,4 @@ chmod 755 "/home/$USERNAME/versions"
 echo "User $USERNAME created successfully."
 echo "Upload subvolume: /home/$USERNAME/uploads (Btrfs subvolume)"
 echo "Versions directory: /home/$USERNAME/versions (read-only Btrfs snapshots)"
-echo "Password: $PASSWORD"
 echo "Btrfs snapshots will be created automatically on file uploads via inotify monitoring."
