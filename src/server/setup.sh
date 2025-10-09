@@ -248,64 +248,127 @@ while read path event; do
         # uploads dir might have been removed
         continue
     fi
-
-    # Debounce: avoid creating multiple snapshots for rapidly repeated events
-    # Since we only watch close_write events, files are already fully written when we see them
-    # BAKAP_DEBOUNCE_SECONDS - time window to coalesce multiple file uploads (default 15)
-    #   If another file completes within this window, reset the timer
-    # BAKAP_SNAPSHOT_DELAY - additional seconds to wait after last close_write (default 10)
-    #   Ensures batch uploads (multiple files) are captured in one snapshot
-    # For very large batch uploads (100+ files), increase DEBOUNCE_SECONDS
-    DEBOUNCE_SECONDS=\${BAKAP_DEBOUNCE_SECONDS:-15}
-    SLEEP_SECONDS=\${BAKAP_SNAPSHOT_DELAY:-10}
-    # Use a small per-user timestamp file in /var/run
+    
+    # Strategy: Periodic snapshots that only include CLOSED files
+    # - Wait for configurable interval (default: 30 minutes) after first event
+    # - Take snapshot of all CLOSED files only (exclude in-progress uploads)
+    # - This allows small files to be snapshotted while large files still upload
+    # - Final snapshot is taken when ALL files are closed
+    
+    SNAPSHOT_INTERVAL=\${BAKAP_SNAPSHOT_INTERVAL:-1800}  # 30 minutes default
+    
+    # Track per-user: when did we last see activity, and when did we last snapshot
     runstamp_dir=/var/run/bakap
     mkdir -p "\$runstamp_dir"
-    lastfile="\$runstamp_dir/last_\$user"
+    activity_file="\$runstamp_dir/activity_\$user"
+    snapshot_file="\$runstamp_dir/snapshot_\$user"
+    
     now=\$(date +%s)
-    if [ -f "\$lastfile" ]; then
-        last=\$(cat "\$lastfile" 2>/dev/null || echo 0)
-    else
-        last=0
+    
+    # Update activity timestamp (we just saw a file event)
+    echo "\$now" > "\$activity_file" 2>/dev/null || true
+    
+    # Check for completed upload (all files closed)
+    # Wait a small coalescing window first (handles rapid successive uploads)
+    COALESCE_WINDOW=\${BAKAP_COALESCE_WINDOW:-30}
+    sleep "\$COALESCE_WINDOW"
+    
+    # Check if any files are still open
+    open_files=\$(lsof +D "/home/\$user/uploads" 2>/dev/null | grep -E "\\s+[0-9]+[uw]" | wc -l || echo 0)
+    
+    # Determine if we should create a snapshot
+    should_snapshot=false
+    snapshot_reason=""
+    
+    if [ "\$open_files" -eq 0 ]; then
+        # All files closed - take snapshot immediately (don't wait for interval)
+        should_snapshot=true
+        snapshot_reason="all files closed"
+    elif [ -f "\$snapshot_file" ]; then
+        # Files still open, check if periodic interval has elapsed
+        last_snapshot=\$(cat "\$snapshot_file" 2>/dev/null || echo 0)
+        time_since_snapshot=\$((now - last_snapshot))
+        
+        if [ "\$time_since_snapshot" -ge "\$SNAPSHOT_INTERVAL" ]; then
+            should_snapshot=true
+            snapshot_reason="periodic (\${time_since_snapshot}s since last, \$open_files files still open)"
+        fi
     fi
-    # If we created a snapshot less than DEBOUNCE_SECONDS ago, skip (coalesce)
-    if [ \$((now - last)) -lt "\$DEBOUNCE_SECONDS" ]; then
-        # update the timestamp so subsequent events extend the window
-        echo "\$now" > "\$lastfile" 2>/dev/null || true
+    
+    # Skip snapshot if not time yet and files still open
+    if [ "\$should_snapshot" = "false" ]; then
+        if [ ! -f "\$snapshot_file" ]; then
+            echo "\$(date '+%F %T') Activity for \$user: waiting for interval or completion" >> "\$LOG"
+        fi
         continue
     fi
-    # wait a short moment to let other file operations settle
-    sleep "\$SLEEP_SECONDS"
     
-    # Check if uploads subvolume exists and has files
+    # Check if uploads directory has files
     if [ ! -d "/home/\$user/uploads" ]; then
         echo "\$(date '+%F %T') Skipping snapshot for \$user: uploads subvolume does not exist" >> "\$LOG"
-        date +%s > "\$lastfile" 2>/dev/null || true
         continue
     fi
     
     if [ -z "\$(ls -A "/home/\$user/uploads" 2>/dev/null)" ]; then
         echo "\$(date '+%F %T') Skipping snapshot for \$user: uploads directory is empty" >> "\$LOG"
-        date +%s > "\$lastfile" 2>/dev/null || true
         continue
     fi
+    
+    # Force filesystem sync to ensure all buffered data is written to disk
+    sync
     
     timestamp=\$(date +%Y-%m-%d_%H-%M-%S)
     snapshot_path="/home/\$user/versions/\$timestamp"
     
-    # Create read-only Btrfs snapshot (instant, atomic, space-efficient)
-    # -r flag creates read-only snapshot (ransomware protection - immutable even for root)
-    if btrfs subvolume snapshot -r "/home/\$user/uploads" "\$snapshot_path" >> "\$LOG" 2>&1; then
-        # Set ownership for versions directory (snapshot inherits subvolume permissions)
+    # Strategy for excluding in-progress files:
+    # 1. Create writable snapshot first (no -r flag)
+    # 2. Delete any files that are currently open for writing
+    # 3. Make snapshot read-only for ransomware protection
+    
+    if btrfs subvolume snapshot "/home/\$user/uploads" "\$snapshot_path" >> "\$LOG" 2>&1; then
+        # Snapshot created, now exclude in-progress files
+        excluded_count=0
+        
+        # Find files that are currently open for writing in the ORIGINAL uploads dir
+        open_files_list=\$(lsof +D "/home/\$user/uploads" 2>/dev/null | grep -E "\\s+[0-9]+[uw]" | awk '{print \$NF}' || true)
+        
+        if [ -n "\$open_files_list" ]; then
+            echo "\$(date '+%F %T') Excluding in-progress files from snapshot:" >> "\$LOG"
+            while IFS= read -r open_file; do
+                if [ -n "\$open_file" ] && [ -f "\$open_file" ]; then
+                    # Extract relative path from /home/user/uploads/...
+                    rel_path=\${open_file#/home/\$user/uploads/}
+                    snapshot_file="\$snapshot_path/\$rel_path"
+                    
+                    if [ -f "\$snapshot_file" ]; then
+                        rm -f "\$snapshot_file"
+                        excluded_count=\$((excluded_count + 1))
+                        file_size=\$(du -h "\$open_file" 2>/dev/null | awk '{print \$1}' || echo "?")
+                        echo "\$(date '+%F %T')   Excluded: \$rel_path (\${file_size}, still uploading)" >> "\$LOG"
+                    fi
+                fi
+            done <<< "\$open_files_list"
+        fi
+        
+        # Now make the snapshot read-only (ransomware protection)
+        btrfs property set -ts "\$snapshot_path" ro true >> "\$LOG" 2>&1 || true
+        
+        # Set ownership and permissions
         chown root:backupusers "\$snapshot_path" 2>/dev/null || true
         chmod 755 "\$snapshot_path" 2>/dev/null || true
-        echo "\$(date '+%F %T') Btrfs snapshot created for \$user at \$timestamp due to \$event" >> "\$LOG"
+        
+        # Log snapshot details
+        if [ "\$excluded_count" -gt 0 ]; then
+            echo "\$(date '+%F %T') Btrfs snapshot created for \$user at \$timestamp (\$snapshot_reason, excluded \$excluded_count in-progress files)" >> "\$LOG"
+        else
+            echo "\$(date '+%F %T') Btrfs snapshot created for \$user at \$timestamp (\$snapshot_reason)" >> "\$LOG"
+        fi
     else
         echo "\$(date '+%F %T') ERROR: Failed to create Btrfs snapshot for \$user" >> "\$LOG"
     fi
     
     # Record last snapshot time
-    date +%s > "\$lastfile" 2>/dev/null || true
+    echo "\$now" > "\$snapshot_file" 2>/dev/null || true
 done
 EOF
 

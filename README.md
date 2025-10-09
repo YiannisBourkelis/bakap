@@ -575,6 +575,19 @@ sudo systemctl status bakap-monitor.service
 sudo systemctl restart bakap-monitor.service
 ```
 
+**Update monitor service after git pull (applies new fixes/features):**
+```bash
+# Pull latest changes
+cd /opt/bakap
+git pull
+
+# Re-run setup to update monitor script
+sudo ./src/server/setup.sh
+
+# Restart service to apply changes
+sudo systemctl restart bakap-monitor.service
+```
+
 #### Security Monitoring (fail2ban)
 
 **Check fail2ban status:**
@@ -646,17 +659,122 @@ sudo grep "Connection closed by authenticating user" /var/log/auth.log | tail -2
 
 ### Server Configuration
 
-- **Debounce Settings**: Control snapshot frequency by setting environment variables:
-  ```bash
-  # In /etc/systemd/system/bakap-monitor.service, add to [Service] section:
-  Environment="BAKAP_DEBOUNCE_SECONDS=10"     # Coalesce events within 10 seconds
-  Environment="BAKAP_SNAPSHOT_DELAY=5"        # Wait 5 seconds before snapshotting
-  ```
+#### Snapshot Timing Configuration
 
-- **SSH Security**: Additional hardening can be done in `/etc/ssh/sshd_config`:
-  - Restrict allowed authentication methods
-  - Configure connection limits
-  - Set up fail2ban for brute-force protection (recommended, install separately)
+The monitor uses **smart periodic snapshots** that exclude in-progress files:
+
+**How it works:**
+1. **Immediate snapshot when all files complete**: No waiting - snapshot taken 30s after last file closes
+2. **Periodic snapshots while uploading**: Takes snapshot every 30 minutes (default) if files are still open
+3. **Excludes in-progress files**: Only completed (closed) files are included in periodic snapshots
+4. **Efficient snapshot management**: Prevents excessive snapshot creation from frequent small file changes
+
+**Example scenarios:**
+
+**Scenario 1: Quick upload (all files complete quickly)**
+```
+03:00:00 - Start uploading: file1.sql (10 MB) + file2.sql (50 MB)
+03:00:15 - Both files complete (all closed)
+03:00:45 - Immediate snapshot: includes BOTH files (no 30-minute wait!)
+```
+
+**Scenario 2: Mixed upload (small + large files)**
+```
+03:00:00 - Start uploading: small.sql (10 MB) + huge.tar.gz (500 GB)
+03:00:30 - small.sql completes (closed)
+03:00:30 - huge.tar.gz still uploading (in progress...)
+03:30:30 - Periodic snapshot #1: includes small.sql, EXCLUDES huge.tar.gz (still open)
+04:00:30 - Periodic snapshot #2: includes small.sql, EXCLUDES huge.tar.gz (still open)
+04:15:00 - huge.tar.gz completes (all files closed)
+04:15:30 - Final snapshot: includes BOTH small.sql + huge.tar.gz (immediate!)
+```
+
+**Configuration** (edit `/etc/systemd/system/bakap-monitor.service`):
+
+```bash
+sudo nano /etc/systemd/system/bakap-monitor.service
+
+# Add to [Service] section:
+Environment="BAKAP_SNAPSHOT_INTERVAL=1800"  # Periodic interval while files open: 30 min (default)
+Environment="BAKAP_COALESCE_WINDOW=30"      # Wait 30s after event before checking (default)
+```
+
+**Important:** `SNAPSHOT_INTERVAL` only applies **while files are still uploading**. When all files complete, snapshot is taken immediately (after the 30s coalesce window).
+
+**Behavior Summary:**
+
+| Scenario | Snapshot Timing | Notes |
+|----------|----------------|-------|
+| **All files complete quickly** | **30 seconds after last file** | No interval wait! Immediate snapshot. |
+| **Files still uploading** | Every 30 minutes (default) | Periodic snapshots exclude in-progress files |
+| **Large file finishes** | **30 seconds after close** | Immediate final snapshot with all files |
+
+**Recommended intervals:**
+
+| Upload Pattern | SNAPSHOT_INTERVAL | Notes |
+|----------------|-------------------|-------|
+| Many small files | 300 (5 min) | More frequent protection while uploading |
+| Mixed sizes | 1800 (30 min) | **Default - balanced** |
+| Few large files | 3600 (60 min) | Less overhead for long uploads |
+| Continuous uploads | 7200 (2 hours) | Minimize snapshot count |
+
+After changes:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart bakap-monitor.service
+```
+
+**Benefits:**
+- ✅ **Immediate snapshot** when all files complete (30s delay only)
+- ✅ Periodic snapshots protect small files while large files still upload
+- ✅ Large files don't block small file protection
+- ✅ Fewer snapshots than per-file approach (easier to manage)
+- ✅ Perfect for mixed workloads (databases + large archives)
+
+#### Optimizing for Very Large Files (100+ GB)
+
+**1. Increase Btrfs commit interval** (reduce metadata overhead):
+```bash
+# Add to /etc/fstab mount options:
+UUID=xxx /home btrfs defaults,compress=zstd,commit=120 0 2
+
+# Remount:
+sudo mount -o remount,commit=120 /home
+```
+
+**2. Disable atime updates** (faster file operations):
+```bash
+# Add to /etc/fstab:
+UUID=xxx /home btrfs defaults,compress=zstd,noatime 0 2
+
+sudo mount -o remount,noatime /home
+```
+
+**3. Increase disk cache** (better for large sequential writes):
+```bash
+# Add to /etc/sysctl.conf:
+vm.dirty_ratio = 40
+vm.dirty_background_ratio = 10
+vm.vfs_cache_pressure = 50
+
+sudo sysctl -p
+```
+
+**4. Monitor disk I/O during uploads:**
+```bash
+# Real-time I/O stats
+sudo iotop -o
+
+# Check if disk is bottleneck
+iostat -x 2
+```
+
+#### SSH Security
+
+Additional hardening can be done in `/etc/ssh/sshd_config`:
+- Restrict allowed authentication methods
+- Configure connection limits
+- Set up fail2ban for brute-force protection (configured automatically by setup.sh)
 
 ### Client Configuration
 
@@ -934,6 +1052,98 @@ Whitelist trusted IPs (edit `/etc/fail2ban/jail.local`):
 [sshd]
 ignoreip = 127.0.0.1/8 ::1 192.168.1.0/24 10.0.0.0/8
 ```
+
+**Problem: Snapshots missing files or contain incomplete files**
+
+**This is now fixed!** The new monitor logic creates **periodic snapshots** (every 30 minutes) that automatically exclude in-progress files.
+
+**How it works:**
+- Small completed files are included in snapshots within 30 minutes
+- Large files still uploading are excluded from periodic snapshots
+- Final snapshot is created when ALL files complete
+
+Update your installation:
+```bash
+# Pull latest fix
+cd /opt/bakap
+git pull
+
+# Re-run setup to update monitor script
+sudo ./src/server/setup.sh
+
+# Restart service
+sudo systemctl restart bakap-monitor.service
+
+# Verify new logic is applied
+sudo grep "Excluding in-progress" /var/backups/scripts/monitor_backups.sh
+```
+
+**Monitor the snapshot process:**
+
+```bash
+# Watch for open files in uploads directory
+sudo watch -n 1 "lsof +D /home/*/uploads 2>/dev/null | grep -E '\s+[0-9]+[uw]'"
+
+# Check monitor logs to see exclusions
+sudo tail -f /var/log/backup_monitor.log
+
+# Example log output (10 MB + 500 GB mixed upload):
+# 2025-10-09 03:00:30 Activity for eventsaxd: waiting for interval or completion
+# 2025-10-09 03:30:30 Excluding in-progress files from snapshot:
+# 2025-10-09 03:30:30   Excluded: huge.tar.gz (387GB, still uploading)
+# 2025-10-09 03:30:31 Btrfs snapshot created for eventsaxd (periodic (1800s since last, 1 files still open), excluded 1 in-progress files)
+# 2025-10-09 04:00:30 Excluding in-progress files from snapshot:
+# 2025-10-09 04:00:30   Excluded: huge.tar.gz (465GB, still uploading)
+# 2025-10-09 04:00:31 Btrfs snapshot created for eventsaxd (periodic (1800s since last, 1 files still open), excluded 1 in-progress files)
+# 2025-10-09 04:15:00 huge.tar.gz upload completes
+# 2025-10-09 04:15:30 Btrfs snapshot created for eventsaxd (all files closed)
+
+# Example log output (quick upload - all files complete fast):
+# 2025-10-09 05:00:10 files.tar.gz upload completes
+# 2025-10-09 05:00:40 Btrfs snapshot created for eventsaxd (all files closed)
+# ↑ Immediate snapshot (no 30-minute wait!)
+```
+
+**Verify excluded files:**
+```bash
+# Check periodic snapshot (in-progress file excluded)
+ls -lh /home/user/versions/2025-10-09_03-30-31/
+# Shows: small.sql (10 MB), huge.tar.gz MISSING
+
+# Check final snapshot (all files present)
+ls -lh /home/user/versions/2025-10-09_04-15-25/
+# Shows: small.sql (10 MB), huge.tar.gz (500 GB)
+```
+
+**View snapshot history:**
+```bash
+# List all snapshots for a user
+ls -lht /home/eventsaxd/versions/
+
+# Compare snapshots (see what changed)
+diff -r /home/eventsaxd/versions/2025-10-09_03-00-08 \
+        /home/eventsaxd/versions/2025-10-09_04-30-15
+```
+
+**For very large files (500+ GB):**
+
+The monitor automatically handles files of any size by waiting until they're fully closed. However, if uploads take longer than 10 minutes (default `BAKAP_MAX_WAIT=600`), increase the timeout:
+
+```bash
+sudo nano /etc/systemd/system/bakap-monitor.service
+
+# Add to [Service] section:
+Environment="BAKAP_MAX_WAIT=1800"  # 30 minutes for very slow uploads
+
+sudo systemctl daemon-reload
+sudo systemctl restart bakap-monitor.service
+```
+
+**Best practices:**
+1. Upload during off-peak hours (less I/O contention)
+2. Monitor logs to verify snapshots capture complete files
+3. Use fast network (10 Gbps) for massive file uploads
+4. Consider dedicated backup disk/network for better throughput
 
 **Problem: Snapshots not being created**
 
