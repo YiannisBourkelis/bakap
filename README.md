@@ -143,12 +143,15 @@ The recommended installation location depends on your use case:
 The easiest way to configure Linux client backups is with the interactive setup script:
 
 ```bash
-cd /opt/bakap
+# First, clone the repository
+git clone https://github.com/YiannisBourkelis/bakap.git
+cd bakap
+
+# Then run the setup script
 sudo ./src/client/linux/setup-client.sh
 ```
 
 This script will:
-- Clone the repository to `/opt/bakap` if not already present
 - Prompt for backup configuration (local path, server, credentials, schedule)
 - Optionally enable automatic updates from GitHub before each backup
 - Create secure credential storage (mode 600)
