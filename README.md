@@ -172,7 +172,7 @@ Enter a name for this backup job (alphanumeric, no spaces): web-backup
 
 The script creates:
 - `/usr/local/bin/bakap-backup/web-backup.sh` (backup script)
-- `/root/.bakap-credentials/web-backup.conf` (encrypted credentials, mode 600)
+- `/root/.bakap-credentials/web-backup.conf` (credentials file, mode 600)
 - Cron job running at 03:30 daily
 - Log rotation for `/var/log/bakap-web-backup.log`
 
