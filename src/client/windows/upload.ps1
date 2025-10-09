@@ -365,10 +365,16 @@ put "$LocalPath" "$DestPath"
                     
                     # Extract fingerprint from the next line
                     # Format: ". 2025-10-07 17:13:56.723 ssh-ed25519 255 SHA256:..."
-                    # We want everything after the timestamp
+                    # We want everything after the timestamp, but without SHA256: prefix
                     if ($nextLine -match "\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+(.+)") {
                         $fingerprint = $matches[1].Trim()
                         Write-Log "Extracted fingerprint: $fingerprint"
+                        
+                        # Remove SHA256: prefix if present (WinSCP expects fingerprint without it)
+                        # When WinSCP compares keys, it reports them as "ssh-ed25519 255 <hash>" (without SHA256:)
+                        # But in the log it shows "ssh-ed25519 255 SHA256:<hash>"
+                        $fingerprint = $fingerprint -replace '(\s+)SHA256:', '$1'
+                        Write-Log "Normalized fingerprint (SHA256: prefix removed): $fingerprint"
                     } else {
                         Write-Log "WARNING: Could not extract fingerprint from next line"
                     }
