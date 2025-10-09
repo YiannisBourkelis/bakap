@@ -684,28 +684,27 @@ The monitor uses **smart periodic snapshots** that exclude in-progress files:
 sudo nano /etc/systemd/system/bakap-monitor.service
 
 # Add to [Service] section:
-Environment="BAKAP_SNAPSHOT_INTERVAL=1800"  # Periodic interval while files open: 30 min (default)
-Environment="BAKAP_COALESCE_WINDOW=30"      # Wait 30s after event before checking (default)
+Environment="BAKAP_INACTIVITY_WINDOW=60"    # Wait for 60s of inactivity before snapshot (default)
+Environment="BAKAP_SNAPSHOT_INTERVAL=1800"  # Max wait time: force snapshot after 30 min (default)
 ```
-
-**Important:** `SNAPSHOT_INTERVAL` only applies **while files are still uploading**. When all files complete, snapshot is taken immediately (after the 30s coalesce window).
 
 **Behavior Summary:**
 
 | Scenario | Snapshot Timing | Notes |
 |----------|----------------|-------|
-| **All files complete quickly** | **30 seconds after last file** | No interval wait! Immediate snapshot. |
+| **Single file upload** | 60 seconds after upload completes | One snapshot per batch |
+| **Multiple files (batch)** | 60 seconds after LAST file completes | One snapshot for entire batch! |
 | **Files still uploading** | Every 30 minutes (default) | Periodic snapshots exclude in-progress files |
-| **Large file finishes** | **30 seconds after close** | Immediate final snapshot with all files |
+| **Large ongoing upload** | 60 seconds after large file finishes | Final snapshot includes everything |
 
 **Recommended intervals:**
 
-| Upload Pattern | SNAPSHOT_INTERVAL | Notes |
-|----------------|-------------------|-------|
-| Many small files | 300 (5 min) | More frequent protection while uploading |
-| Mixed sizes | 1800 (30 min) | **Default - balanced** |
-| Few large files | 3600 (60 min) | Less overhead for long uploads |
-| Continuous uploads | 7200 (2 hours) | Minimize snapshot count |
+| Upload Pattern | INACTIVITY_WINDOW | SNAPSHOT_INTERVAL | Notes |
+|----------------|-------------------|-------------------|-------|
+| Frequent small files | 30 seconds | 300 (5 min) | Quick snapshots after activity stops |
+| **Mixed sizes (default)** | **60 seconds** | **1800 (30 min)** | **Balanced - recommended** |
+| Few large files | 120 seconds | 3600 (60 min) | Wait longer to group uploads |
+| Continuous uploads | 180 seconds | 7200 (2 hours) | Minimize snapshot count |
 
 After changes:
 ```bash
@@ -714,11 +713,11 @@ sudo systemctl restart bakap-monitor.service
 ```
 
 **Benefits:**
-- ✅ **Immediate snapshot** when all files complete (30s delay only)
-- ✅ Periodic snapshots protect small files while large files still upload
-- ✅ Large files don't block small file protection
-- ✅ Fewer snapshots than per-file approach (easier to manage)
-- ✅ Perfect for mixed workloads (databases + large archives)
+- ✅ **One snapshot per upload batch** (not one per file!)
+- ✅ Automatically waits for inactivity before creating snapshot
+- ✅ Multiple files uploaded together → single snapshot
+- ✅ Periodic snapshots for very long uploads
+- ✅ Fewer snapshots = easier version management
 
 #### Optimizing for Very Large Files (100+ GB)
 

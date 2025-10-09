@@ -249,31 +249,49 @@ while read path event; do
         continue
     fi
     
-    # Strategy: Periodic snapshots that only include CLOSED files
-    # - Wait for configurable interval (default: 30 minutes) after first event
-    # - Take snapshot of all CLOSED files only (exclude in-progress uploads)
-    # - This allows small files to be snapshotted while large files still upload
-    # - Final snapshot is taken when ALL files are closed
+    # Strategy: Debounced snapshots
+    # - Record activity timestamp when file event occurs
+    # - Wait for inactivity period (no new events) before creating snapshot
+    # - This coalesces multiple file uploads into a single snapshot
+    # - Also support periodic snapshots if uploads are ongoing for a long time
     
-    SNAPSHOT_INTERVAL=\${BAKAP_SNAPSHOT_INTERVAL:-1800}  # 30 minutes default
+    INACTIVITY_WINDOW=\${BAKAP_INACTIVITY_WINDOW:-60}  # 60 seconds of no activity
+    SNAPSHOT_INTERVAL=\${BAKAP_SNAPSHOT_INTERVAL:-1800}  # 30 minutes max wait
     
     # Track per-user: when did we last see activity, and when did we last snapshot
     runstamp_dir=/var/run/bakap
     mkdir -p "\$runstamp_dir"
     activity_file="\$runstamp_dir/activity_\$user"
     snapshot_file="\$runstamp_dir/snapshot_\$user"
+    processing_file="\$runstamp_dir/processing_\$user"
     
     now=\$(date +%s)
     
     # Update activity timestamp (we just saw a file event)
     echo "\$now" > "\$activity_file" 2>/dev/null || true
     
-    # Check for completed upload (all files closed)
-    # Wait a small coalescing window first (handles rapid successive uploads)
-    COALESCE_WINDOW=\${BAKAP_COALESCE_WINDOW:-30}
-    sleep "\$COALESCE_WINDOW"
+    # If another process is already handling this user, skip
+    if [ -f "\$processing_file" ]; then
+        continue
+    fi
     
-    # Check if any files are still open
+    # Mark that we're processing this user
+    echo "\$now" > "\$processing_file" 2>/dev/null || true
+    
+    # Wait for inactivity window
+    sleep "\$INACTIVITY_WINDOW"
+    
+    # Check if there was more activity during our wait
+    last_activity=\$(cat "\$activity_file" 2>/dev/null || echo 0)
+    time_since_activity=\$((now - last_activity))
+    
+    # If activity is too recent (happened during our sleep), another event will handle it
+    if [ "\$time_since_activity" -lt "\$INACTIVITY_WINDOW" ]; then
+        rm -f "\$processing_file"
+        continue
+    fi
+    
+    # Check if any files are still open (in-progress uploads)
     open_files=\$(lsof +D "/home/\$user/uploads" 2>/dev/null | grep -E "\\s+[0-9]+[uw]" | wc -l || echo 0)
     
     # Determine if we should create a snapshot
@@ -281,9 +299,9 @@ while read path event; do
     snapshot_reason=""
     
     if [ "\$open_files" -eq 0 ]; then
-        # All files closed - take snapshot immediately (don't wait for interval)
+        # All files closed and no recent activity - take snapshot
         should_snapshot=true
-        snapshot_reason="all files closed"
+        snapshot_reason="upload complete (no activity for \${INACTIVITY_WINDOW}s)"
     elif [ -f "\$snapshot_file" ]; then
         # Files still open, check if periodic interval has elapsed
         last_snapshot=\$(cat "\$snapshot_file" 2>/dev/null || echo 0)
@@ -295,11 +313,11 @@ while read path event; do
         fi
     fi
     
-    # Skip snapshot if not time yet and files still open
+    # Clean up processing lock
+    rm -f "\$processing_file"
+    
+    # Skip snapshot if not time yet
     if [ "\$should_snapshot" = "false" ]; then
-        if [ ! -f "\$snapshot_file" ]; then
-            echo "\$(date '+%F %T') Activity for \$user: waiting for interval or completion" >> "\$LOG"
-        fi
         continue
     fi
     
