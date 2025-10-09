@@ -1,5 +1,11 @@
 # bakap Project
 
+> **⚠️ EXPERIMENTAL SOFTWARE - USE WITH CAUTION**
+>
+> Bakap is currently in **experimental/alpha stage**. While it has been tested in development environments, it has not yet been extensively tested in production scenarios. Use at your own risk and **always maintain independent backups** of your critical data. The software may contain bugs, and breaking changes may occur in future releases.
+>
+> **Not recommended for production use without thorough testing in your specific environment.**
+
 ## Overview
 Bakap is a secure, versioned backup server for Debian Linux using **Btrfs copy-on-write snapshots**. It allows remote clients to upload files via SFTP, storing them in user-specific folders with real-time incremental versioning for ransomware protection. Even if a client's local machine is infected, the server-side version history remains intact and unmodifiable. Clients can download previous versions of their files. Users are strictly chrooted to their home directories for security.
 
