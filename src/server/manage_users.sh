@@ -134,7 +134,7 @@ get_last_backup_date() {
     fi
     
     if [ "$activity_epoch" -gt 0 ]; then
-        last_activity=$(date -d "@$activity_epoch" "+%Y-%m-%d" 2>/dev/null || date -r "$activity_epoch" "+%Y-%m-%d" 2>/dev/null || echo "Unknown")
+        last_activity=$(date -d "@$activity_epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || date -r "$activity_epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
         echo "$last_activity|$activity_epoch"
     else
         echo "Never|0"
@@ -145,7 +145,7 @@ get_last_backup_date() {
 list_users() {
     echo "Backup Users:"
     echo "==============================================================================="
-    printf "%-15s %10s %10s %8s %12s %s\n" "Username" "Size (MB)" "Apparent" "Snaps" "Last Backup" "Status"
+    printf "%-15s %10s %10s %8s %18s %s\n" "Username" "Size (MB)" "Apparent" "Snaps" "Last Backup" "Status"
     echo "-------------------------------------------------------------------------------"
     
     local users=$(get_backup_users)
@@ -204,9 +204,9 @@ list_users() {
         
         # Print with color if status needs attention
         if [ -n "$status_color" ] && [ "$status" != "✓"* ]; then
-            printf "%-15s %10s %10s %8s %12s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$last_date" "$status"
+            printf "%-15s %10s %10s %8s %18s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$last_date" "$status"
         else
-            printf "%-15s %10s %10s %8s %12s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$last_date" "$status"
+            printf "%-15s %10s %10s %8s %18s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$last_date" "$status"
         fi
         
         # Sum up totals using bc for decimal arithmetic
