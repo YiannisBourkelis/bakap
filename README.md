@@ -116,11 +116,11 @@ mount /dev/sdXY /home
 
 The recommended installation location depends on your use case:
 
-| Location | Rating | Best For | Notes |
-|----------|--------|----------|-------|
-| **`/opt/bakap`** | ⭐⭐⭐⭐⭐ | **Production systems** | Standard location for third-party software. Root-owned, system-wide, survives user account changes. **This is the default for `setup-client.sh`.** |
-| `/usr/local/src/bakap` | ⭐⭐⭐⭐ | Alternative production | Also system-wide and root-owned. Traditionally used for locally built software. |
-| `~/bakap` | ⭐⭐ | Testing only | User-specific, deleted with user account. Not suitable for root cron jobs or production use. |
+| Location | Best For | Notes |
+|----------|----------|-------|
+| **`/opt/bakap`** | **Production systems** | Standard location for third-party software. Root-owned, system-wide, survives user account changes. **This is the default for `setup-client.sh`.** |
+| `/usr/local/src/bakap` | Alternative production | Also system-wide and root-owned. Traditionally used for locally built software. |
+| `~/bakap` | Testing only | User-specific, deleted with user account. Not suitable for root cron jobs or production use. |
 
 **Recommendation:** Use `/opt/bakap` for all production client installations. This is where `setup-client.sh` clones the repository by default.
 
@@ -1231,9 +1231,3 @@ KEEP_MONTHLY=1
 ENABLE_ADVANCED_RETENTION=false
 RETENTION_DAYS=7
 ```
-
-## Contributing
-Contributions are welcome! Before contributing, please review our [Contributing Guide](CONTRIBUTING.md), which includes our Contributor License Agreement (CLA). All contributors must agree to the CLA to have their changes accepted.
-
-## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
