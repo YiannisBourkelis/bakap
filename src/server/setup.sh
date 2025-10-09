@@ -275,7 +275,7 @@ while read path event; do
         continue
     fi
     
-    # Mark that we're processing this user
+    # Mark that we're processing this user (record when we started waiting)
     echo "\$now" > "\$processing_file" 2>/dev/null || true
     
     # Wait for inactivity window
@@ -283,10 +283,11 @@ while read path event; do
     
     # Check if there was more activity during our wait
     last_activity=\$(cat "\$activity_file" 2>/dev/null || echo 0)
-    time_since_activity=\$((now - last_activity))
+    wait_started=\$(cat "\$processing_file" 2>/dev/null || echo 0)
     
-    # If activity is too recent (happened during our sleep), another event will handle it
-    if [ "\$time_since_activity" -lt "\$INACTIVITY_WINDOW" ]; then
+    # If activity happened AFTER we started waiting, another event will handle it
+    if [ "\$last_activity" -gt "\$wait_started" ]; then
+        echo "\$(date '+%F %T') User \$user: new activity detected during wait, deferring to next event" >> "\$LOG"
         rm -f "\$processing_file"
         continue
     fi
