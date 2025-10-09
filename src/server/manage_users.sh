@@ -819,6 +819,7 @@ verify_snapshot_integrity() {
 # Rebuild snapshots for a single user
 rebuild_user() {
     local username="$1"
+    local skip_confirmation="${2:-false}"  # Optional parameter, defaults to false
     
     # Validate user
     if ! id "$username" &>/dev/null; then
@@ -840,6 +841,28 @@ rebuild_user() {
     echo "=========================================="
     echo "Rebuilding snapshots for user: $username"
     echo "=========================================="
+    
+    # Confirmation prompt (skip if called from rebuild_all)
+    if [ "$skip_confirmation" != "true" ]; then
+        # Count existing snapshots for confirmation message
+        local existing_count=0
+        if [ -d "$versions_dir" ]; then
+            existing_count=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+        fi
+        
+        echo "WARNING: This will DELETE ALL existing snapshots for user '$username' and create a fresh one!"
+        if [ "$existing_count" -gt 0 ]; then
+            echo "Existing snapshots to be deleted: $existing_count"
+        fi
+        echo ""
+        read -p "Are you sure you want to continue? (yes/no): " confirmation
+        
+        if [ "$confirmation" != "yes" ]; then
+            echo "Rebuild cancelled for user '$username'."
+            return 1
+        fi
+        echo ""
+    fi
     
     # Check if uploads directory exists
     if [ ! -d "$uploads_dir" ]; then
@@ -973,6 +996,31 @@ rebuild_all() {
         return
     fi
     
+    # Count total users and snapshots for confirmation
+    local user_count=$(echo "$users" | grep -v '^$' | wc -l)
+    local total_snapshots=0
+    
+    while IFS= read -r user; do
+        if [ -n "$user" ] && [ -d "/home/$user/versions" ]; then
+            local count=$(find "/home/$user/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+            total_snapshots=$((total_snapshots + count))
+        fi
+    done <<< "$users"
+    
+    # Confirmation prompt
+    echo "WARNING: This will DELETE ALL existing snapshots for ALL backup users!"
+    echo "Total users: $user_count"
+    echo "Total snapshots to be deleted: $total_snapshots"
+    echo "Each user will get a fresh snapshot created from their current uploads."
+    echo ""
+    read -p "Are you sure you want to continue? (yes/no): " confirmation
+    
+    if [ "$confirmation" != "yes" ]; then
+        echo "Rebuild cancelled."
+        return
+    fi
+    echo ""
+    
     local processed=0
     local succeeded=0
     local skipped=0
@@ -985,7 +1033,8 @@ rebuild_all() {
         
         processed=$((processed + 1))
         
-        if rebuild_user "$user"; then
+        # Pass 'true' as second parameter to skip individual confirmation prompts
+        if rebuild_user "$user" "true"; then
             succeeded=$((succeeded + 1))
         else
             # Check if it was skipped or failed
