@@ -110,7 +110,13 @@ mount /dev/sdXY /home
    ```
    This creates a user with a secure password, sets up Btrfs subvolumes, and applies restrictions.
 
-### Client Installation
+## Usage
+
+### Client Upload Scripts
+
+Bakap includes cross-platform client scripts for easy file uploads:
+
+#### Linux Client (`src/client/linux/upload.sh`)
 
 #### Installation Location Recommendations
 
@@ -124,94 +130,6 @@ The recommended installation location depends on your use case:
 
 **Recommendation:** Use `/opt/bakap` for all production client installations. This is where `setup-client.sh` clones the repository by default.
 
-#### Manual Client Setup (Linux)
-
-1. Clone the repository to the recommended location:
-   ```bash
-   sudo git clone https://github.com/YiannisBourkelis/bakap.git /opt/bakap
-   ```
-
-2. Make the client script executable:
-   ```bash
-   sudo chmod +x /opt/bakap/src/client/linux/upload.sh
-   ```
-
-3. Set up automated backups (see **Automated Linux Client Setup** below for the easy way).
-
-#### Automated Linux Client Setup
-
-The easiest way to configure Linux client backups is with the interactive setup script:
-
-```bash
-# First, clone the repository
-git clone https://github.com/YiannisBourkelis/bakap.git
-cd bakap
-
-# Then run the setup script
-sudo ./src/client/linux/setup-client.sh
-```
-
-This script will:
-- Prompt for backup configuration (local path, server, credentials, schedule)
-- Create secure credential storage (mode 600)
-- Set up cron job for scheduled backups
-- Configure log rotation
-- Offer to run a test backup immediately
-
-**Example session:**
-```
-Enter the local path to backup: /var/www
-Enter the backup server hostname or IP: backup.example.com
-Enter the SFTP username: webserver1
-Enter the SFTP password: ********
-Confirm SFTP password: ********
-Enter the destination path on server [/uploads]: /web-backups
-Enter the backup time (HH:MM format, e.g., 02:00): 03:30
-Enter a name for this backup job (alphanumeric, no spaces): web-backup
-```
-
-The script creates:
-- `/usr/local/bin/bakap-backup/web-backup.sh` (backup script)
-- `/root/.bakap-credentials/web-backup.conf` (credentials file, mode 600)
-- Cron job running at 03:30 daily
-- Log rotation for `/var/log/bakap-web-backup.log`
-
-## Usage
-
-### Client Upload Scripts
-
-Bakap includes cross-platform client scripts for easy file uploads:
-
-#### Windows Client (`src/client/windows/upload.ps1`)
-PowerShell script with hash-based skipping and WinSCP support:
-```powershell
-# Upload a file
-.\upload.ps1 -LocalPath "C:\data\file.txt" -User backupuser -Password "pass" -Server backup.example.com
-
-# Upload a directory
-.\upload.ps1 -LocalPath "C:\data\folder" -User backupuser -Password "pass" -Server backup.example.com -DestinationPath "/data"
-
-# Force upload (skip hash check)
-.\upload.ps1 -LocalPath "C:\data\file.txt" -User backupuser -Password "pass" -Server backup.example.com -Force
-```
-
-**Parameters:**
-- `-LocalPath` (required): File or directory to upload
-- `-User` (required): SFTP username
-- `-Password` (required): SFTP password
-- `-Server` (required): Server hostname or IP
-- `-DestinationPath` (optional): Remote path (defaults to `/uploads`)
-- `-Port` (optional): SFTP port (default: 22)
-- `-Force` (optional): Skip hash check, always upload
-
-**Features:**
-- SHA-256 hash checking to skip unchanged files
-- Automatic WinSCP detection
-- Process monitoring to prevent hanging
-- Support for both files and directories
-- Mirror mode: Deleted local files are also deleted from remote backup
-
-#### Linux Client (`src/client/linux/upload.sh`)
 Bash script with lftp/sftp support and named parameters:
 ```bash
 # Upload a file
@@ -340,6 +258,35 @@ Cron job:
 ```
 
 **Multiple backup jobs:** Run the script multiple times to configure different backup jobs (e.g., web1, database, documents). Each gets its own script, credentials, logs, and schedule.
+
+#### Windows Client (`src/client/windows/upload.ps1`)
+PowerShell script with hash-based skipping and WinSCP support:
+```powershell
+# Upload a file
+.\upload.ps1 -LocalPath "C:\data\file.txt" -User backupuser -Password "pass" -Server backup.example.com
+
+# Upload a directory
+.\upload.ps1 -LocalPath "C:\data\folder" -User backupuser -Password "pass" -Server backup.example.com -DestinationPath "/data"
+
+# Force upload (skip hash check)
+.\upload.ps1 -LocalPath "C:\data\file.txt" -User backupuser -Password "pass" -Server backup.example.com -Force
+```
+
+**Parameters:**
+- `-LocalPath` (required): File or directory to upload
+- `-User` (required): SFTP username
+- `-Password` (required): SFTP password
+- `-Server` (required): Server hostname or IP
+- `-DestinationPath` (optional): Remote path (defaults to `/uploads`)
+- `-Port` (optional): SFTP port (default: 22)
+- `-Force` (optional): Skip hash check, always upload
+
+**Features:**
+- SHA-256 hash checking to skip unchanged files
+- Automatic WinSCP detection
+- Process monitoring to prevent hanging
+- Support for both files and directories
+- Mirror mode: Deleted local files are also deleted from remote backup
 
 #### Automated Windows Backup Setup (`src/client/windows/setup-client.ps1`)
 
