@@ -29,6 +29,8 @@ Commands:
     delete <username>       Delete a user and all their files
     cleanup <username>      Keep only the latest snapshot (removes old snapshots, keeps actual files)
     cleanup-all             Cleanup all backup users (keep latest snapshot for each)
+    rebuild <username>      Delete all snapshots and create fresh snapshot from uploads
+    rebuild-all             Rebuild snapshots for all users (skips users with open files)
     help                    Show this help message
 
 Examples:
@@ -41,13 +43,17 @@ Examples:
     $SCRIPT_NAME delete testuser
     $SCRIPT_NAME cleanup testuser
     $SCRIPT_NAME cleanup-all
+    $SCRIPT_NAME rebuild testuser
+    $SCRIPT_NAME rebuild-all
 
 Notes:
-    - The cleanup command preserves actual files by copying the latest snapshot
-    - Symlinks/hardlinks in older snapshots are removed
+    - The cleanup command removes old Btrfs snapshots and keeps only the latest
     - Delete command removes the user and ALL their data permanently
     - Restore command copies files to specified destination (destination must not exist)
     - Search looks through latest snapshots only
+    - Rebuild command deletes ALL existing snapshots and creates fresh snapshot from uploads
+    - Rebuild skips users with files open in uploads directory (warns and continues)
+    - Rebuild verifies file integrity between uploads and created snapshot
 EOF
 }
 
@@ -735,6 +741,274 @@ cleanup_user() {
     echo "Latest snapshot preserved: $latest_name"
 }
 
+# Check if user has open files in uploads directory
+has_open_files() {
+    local username="$1"
+    local home_dir="/home/$username"
+    local uploads_dir="$home_dir/uploads"
+    
+    if [ ! -d "$uploads_dir" ]; then
+        return 1  # No uploads dir = no open files
+    fi
+    
+    # Check for open files using lsof
+    local open_files=$(lsof +D "$uploads_dir" 2>/dev/null | grep -E "\s+[0-9]+[uw]" || true)
+    
+    if [ -n "$open_files" ]; then
+        return 0  # Has open files
+    else
+        return 1  # No open files
+    fi
+}
+
+# Verify file integrity between uploads and snapshot
+verify_snapshot_integrity() {
+    local username="$1"
+    local snapshot_path="$2"
+    local uploads_dir="/home/$username/uploads"
+    
+    echo "Verifying file integrity..."
+    
+    # Count files in uploads
+    local uploads_count=$(find "$uploads_dir" -type f 2>/dev/null | wc -l)
+    local snapshot_count=$(find "$snapshot_path" -type f 2>/dev/null | wc -l)
+    
+    if [ "$uploads_count" -ne "$snapshot_count" ]; then
+        echo "⚠ WARNING: File count mismatch! Uploads: $uploads_count, Snapshot: $snapshot_count"
+        return 1
+    fi
+    
+    echo "✓ File count matches: $uploads_count files"
+    
+    # Compare file sizes and checksums for each file
+    local errors=0
+    local checked=0
+    
+    while IFS= read -r upload_file; do
+        if [ -f "$upload_file" ]; then
+            local rel_path="${upload_file#$uploads_dir/}"
+            local snapshot_file="$snapshot_path/$rel_path"
+            
+            if [ ! -f "$snapshot_file" ]; then
+                echo "✗ Missing in snapshot: $rel_path"
+                errors=$((errors + 1))
+            else
+                # Compare file sizes
+                local upload_size=$(stat -c %s "$upload_file" 2>/dev/null || stat -f %z "$upload_file" 2>/dev/null)
+                local snapshot_size=$(stat -c %s "$snapshot_file" 2>/dev/null || stat -f %z "$snapshot_file" 2>/dev/null)
+                
+                if [ "$upload_size" != "$snapshot_size" ]; then
+                    echo "✗ Size mismatch: $rel_path (upload: $upload_size, snapshot: $snapshot_size)"
+                    errors=$((errors + 1))
+                fi
+                
+                checked=$((checked + 1))
+            fi
+        fi
+    done < <(find "$uploads_dir" -type f 2>/dev/null)
+    
+    if [ "$errors" -eq 0 ]; then
+        echo "✓ All $checked files verified successfully"
+        return 0
+    else
+        echo "✗ Verification failed: $errors errors found"
+        return 1
+    fi
+}
+
+# Rebuild snapshots for a single user
+rebuild_user() {
+    local username="$1"
+    
+    # Validate user
+    if ! id "$username" &>/dev/null; then
+        echo "Error: User '$username' does not exist" >&2
+        return 1
+    fi
+    
+    # Check if user is a backup user
+    local backup_users=$(get_backup_users)
+    if ! echo "$backup_users" | grep -q "^${username}$"; then
+        echo "Error: User '$username' is not a backup user" >&2
+        return 1
+    fi
+    
+    local home_dir="/home/$username"
+    local uploads_dir="$home_dir/uploads"
+    local versions_dir="$home_dir/versions"
+    
+    echo "=========================================="
+    echo "Rebuilding snapshots for user: $username"
+    echo "=========================================="
+    
+    # Check if uploads directory exists
+    if [ ! -d "$uploads_dir" ]; then
+        echo "⚠ WARNING: No uploads directory found for user '$username'"
+        echo "Skipping this user."
+        return 1
+    fi
+    
+    # Check for open files
+    if has_open_files "$username"; then
+        echo "⚠ WARNING: User '$username' has files currently open in uploads directory"
+        echo "Cannot rebuild while files are in progress. Skipping this user."
+        local open_files=$(lsof +D "$uploads_dir" 2>/dev/null | grep -E "\s+[0-9]+[uw]" | awk '{print $NF}')
+        echo "Open files:"
+        echo "$open_files" | while IFS= read -r file; do
+            if [ -n "$file" ]; then
+                echo "  - ${file#$uploads_dir/}"
+            fi
+        done
+        return 1
+    fi
+    
+    # Check if uploads directory has any files
+    local file_count=$(find "$uploads_dir" -type f 2>/dev/null | wc -l)
+    if [ "$file_count" -eq 0 ]; then
+        echo "⚠ WARNING: Uploads directory is empty for user '$username'"
+        echo "Skipping this user."
+        return 1
+    fi
+    
+    echo "✓ No open files detected"
+    echo "Files to snapshot: $file_count"
+    
+    # Delete all existing snapshots
+    if [ -d "$versions_dir" ]; then
+        local snapshots=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+        local snapshot_count=$(echo "$snapshots" | grep -v '^$' | wc -l)
+        
+        if [ "$snapshot_count" -gt 0 ]; then
+            echo "Deleting $snapshot_count existing snapshot(s)..."
+            
+            local deleted=0
+            while IFS= read -r snapshot; do
+                if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
+                    # Try to make writable first if it's read-only
+                    btrfs property set -ts "$snapshot" ro false &>/dev/null || true
+                    
+                    # Check if it's a Btrfs subvolume
+                    if btrfs subvolume show "$snapshot" &>/dev/null; then
+                        if btrfs subvolume delete "$snapshot" &>/dev/null; then
+                            deleted=$((deleted + 1))
+                            echo "  ✓ Deleted: $(basename "$snapshot")"
+                        else
+                            echo "  ✗ Failed to delete: $(basename "$snapshot")"
+                        fi
+                    else
+                        # Fallback for non-subvolume directories
+                        if rm -rf "$snapshot"; then
+                            deleted=$((deleted + 1))
+                            echo "  ✓ Deleted: $(basename "$snapshot")"
+                        else
+                            echo "  ✗ Failed to delete: $(basename "$snapshot")"
+                        fi
+                    fi
+                fi
+            done <<< "$snapshots"
+            
+            echo "Deleted $deleted snapshot(s)"
+        else
+            echo "No existing snapshots to delete"
+        fi
+    else
+        echo "Creating versions directory..."
+        mkdir -p "$versions_dir"
+        chown root:backupusers "$versions_dir"
+        chmod 755 "$versions_dir"
+    fi
+    
+    # Create fresh snapshot from uploads
+    echo "Creating fresh snapshot from uploads directory..."
+    
+    local timestamp=$(date +%Y-%m-%d_%H-%M-%S)
+    local snapshot_path="$versions_dir/$timestamp"
+    
+    # Check if uploads is a Btrfs subvolume
+    if btrfs subvolume show "$uploads_dir" &>/dev/null; then
+        # Create Btrfs snapshot
+        if btrfs subvolume snapshot "$uploads_dir" "$snapshot_path" &>/dev/null; then
+            echo "✓ Btrfs snapshot created: $timestamp"
+            
+            # Make snapshot read-only for ransomware protection
+            if btrfs property set -ts "$snapshot_path" ro true &>/dev/null; then
+                echo "✓ Snapshot set to read-only"
+            else
+                echo "⚠ WARNING: Failed to set snapshot as read-only"
+            fi
+            
+            # Set ownership and permissions
+            chown root:backupusers "$snapshot_path" 2>/dev/null || true
+            chmod 755 "$snapshot_path" 2>/dev/null || true
+            
+            # Verify integrity
+            if verify_snapshot_integrity "$username" "$snapshot_path"; then
+                echo "✓ Snapshot rebuild completed successfully for user '$username'"
+                return 0
+            else
+                echo "✗ Snapshot created but integrity verification failed"
+                return 1
+            fi
+        else
+            echo "✗ ERROR: Failed to create Btrfs snapshot"
+            return 1
+        fi
+    else
+        echo "✗ ERROR: Uploads directory is not a Btrfs subvolume"
+        echo "This should not happen. Please check the user setup."
+        return 1
+    fi
+}
+
+# Rebuild snapshots for all users
+rebuild_all() {
+    echo "=========================================="
+    echo "Rebuilding snapshots for all backup users"
+    echo "=========================================="
+    echo ""
+    
+    local users=$(get_backup_users)
+    if [ -z "$users" ]; then
+        echo "No backup users found."
+        return
+    fi
+    
+    local processed=0
+    local succeeded=0
+    local skipped=0
+    local failed=0
+    
+    while IFS= read -r user; do
+        if [ -z "$user" ]; then
+            continue
+        fi
+        
+        processed=$((processed + 1))
+        
+        if rebuild_user "$user"; then
+            succeeded=$((succeeded + 1))
+        else
+            # Check if it was skipped or failed
+            if has_open_files "$user" 2>/dev/null; then
+                skipped=$((skipped + 1))
+            else
+                failed=$((failed + 1))
+            fi
+        fi
+        
+        echo ""
+    done <<< "$users"
+    
+    echo "=========================================="
+    echo "Rebuild Summary"
+    echo "=========================================="
+    echo "Total users processed: $processed"
+    echo "Successfully rebuilt: $succeeded"
+    echo "Skipped (open files): $skipped"
+    echo "Failed: $failed"
+    echo "=========================================="
+}
+
 # Cleanup all backup users
 cleanup_all() {
     echo "Cleaning up all backup users..."
@@ -834,6 +1108,17 @@ case "$command" in
         ;;
     cleanup-all)
         cleanup_all
+        ;;
+    rebuild)
+        if [ $# -eq 0 ]; then
+            echo "Error: Username is required for rebuild command" >&2
+            usage
+            exit 1
+        fi
+        rebuild_user "$1"
+        ;;
+    rebuild-all)
+        rebuild_all
         ;;
     help|--help|-h)
         usage

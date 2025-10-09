@@ -464,7 +464,7 @@ Comprehensive tool for managing backup users and snapshots:
 ```bash
 sudo ./src/server/manage_users.sh list
 ```
-Shows username, actual disk usage, apparent size (before hardlink deduplication), and snapshot count.
+Shows username, actual disk usage, apparent size (before Btrfs deduplication), snapshot count, and last backup date/time.
 
 **Get detailed user information:**
 ```bash
@@ -472,7 +472,7 @@ sudo ./src/server/manage_users.sh info <username>
 ```
 Displays:
 - User ID and group membership
-- Disk usage breakdown (uploads, versions, space saved via hardlinks)
+- Disk usage breakdown (uploads, versions, space saved via Btrfs copy-on-write)
 - Snapshot statistics (oldest, newest, total count)
 - Upload activity and last upload time
 - Custom retention policy (if configured)
@@ -507,13 +507,53 @@ Copies files from a specific snapshot to a local destination (with progress disp
 
 **Cleanup old snapshots:**
 ```bash
-# Cleanup specific user (keeps only latest snapshot with actual files)
+# Cleanup specific user (keeps only latest snapshot)
 sudo ./src/server/manage_users.sh cleanup <username>
 
 # Cleanup all users
 sudo ./src/server/manage_users.sh cleanup-all
 ```
-Removes hardlinked snapshots while preserving the latest snapshot with actual file data.
+Removes old Btrfs snapshots while preserving the latest snapshot.
+
+**Rebuild snapshots from current uploads:**
+```bash
+# Rebuild snapshots for a specific user
+sudo ./src/server/manage_users.sh rebuild <username>
+
+# Rebuild snapshots for all users
+sudo ./src/server/manage_users.sh rebuild-all
+```
+Deletes ALL existing snapshots and creates a fresh Btrfs snapshot from the current uploads directory. This is useful when you need to:
+- Clean up snapshot history and start fresh
+- Fix corrupted or inconsistent snapshots
+- Reduce disk space by eliminating snapshot history
+
+**Features:**
+- Automatically skips users with files currently open (warns and continues)
+- Verifies file integrity after creating the new snapshot
+- Compares file count and sizes between uploads and snapshot
+- Provides detailed progress output and summary statistics
+
+**Example output:**
+```
+==========================================
+Rebuilding snapshots for user: testuser
+==========================================
+✓ No open files detected
+Files to snapshot: 1247
+Deleting 3 existing snapshot(s)...
+  ✓ Deleted: 2025-10-08_14-30-00
+  ✓ Deleted: 2025-10-09_08-15-22
+  ✓ Deleted: 2025-10-09_12-45-10
+Deleted 3 snapshot(s)
+Creating fresh snapshot from uploads directory...
+✓ Btrfs snapshot created: 2025-10-09_15-30-45
+✓ Snapshot set to read-only
+Verifying file integrity...
+✓ File count matches: 1247 files
+✓ All 1247 files verified successfully
+✓ Snapshot rebuild completed successfully for user 'testuser'
+```
 
 **Delete a user:**
 ```bash
