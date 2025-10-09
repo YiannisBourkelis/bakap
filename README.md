@@ -608,6 +608,11 @@ sudo fail2ban-client set sshd-ddos unbanip <IP_ADDRESS>
 
 **View recent failed SSH/SFTP authentication attempts:**
 ```bash
+# On systems using systemd journal (Debian 12+, modern Linux distributions)
+sudo journalctl -u ssh -u sshd --since "1 hour ago" | grep "Failed\|Invalid" | tail -20
+sudo journalctl -u ssh -u sshd --since "today" | grep "Failed password" | tail -20
+
+# On systems with traditional syslog (older Debian versions, check if /var/log/auth.log has content)
 sudo grep "Failed password" /var/log/auth.log | tail -20
 sudo grep "Connection closed by authenticating user" /var/log/auth.log | tail -20
 ```
@@ -1109,7 +1114,7 @@ diff -r /home/eventsaxd/versions/2025-10-09_03-00-08 \
         /home/eventsaxd/versions/2025-10-09_04-30-15
 ```
 
-**For very large files (500+ GB):**
+### For very large files (500+ GB):
 
 The monitor automatically handles files of any size by waiting until they're fully closed. However, if uploads take longer than 10 minutes (default `BAKAP_MAX_WAIT=600`), increase the timeout:
 
