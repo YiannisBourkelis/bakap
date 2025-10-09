@@ -153,7 +153,6 @@ sudo ./src/client/linux/setup-client.sh
 
 This script will:
 - Prompt for backup configuration (local path, server, credentials, schedule)
-- Optionally enable automatic updates from GitHub before each backup
 - Create secure credential storage (mode 600)
 - Set up cron job for scheduled backups
 - Configure log rotation
@@ -169,8 +168,6 @@ Confirm SFTP password: ********
 Enter the destination path on server [/uploads]: /web-backups
 Enter the backup time (HH:MM format, e.g., 02:00): 03:30
 Enter a name for this backup job (alphanumeric, no spaces): web-backup
-
-Would you like to enable automatic updates from GitHub? (y/n): y
 ```
 
 The script creates:
@@ -178,15 +175,6 @@ The script creates:
 - `/root/.bakap-credentials/web-backup.conf` (encrypted credentials, mode 600)
 - Cron job running at 03:30 daily
 - Log rotation for `/var/log/bakap-web-backup.log`
-
-**Auto-Update Feature:**
-If enabled, before each backup the script will:
-1. Check for updates from GitHub (`git fetch`)
-2. Automatically merge updates (`git merge --ff-only origin/main`)
-3. Log update status in backup logs
-4. Proceed with backup using the latest version
-
-This ensures clients always use the latest security fixes and features.
 
 ## Usage
 
@@ -1017,7 +1005,7 @@ Get-Content "C:\ProgramData\bakap-logs\bakap-<jobname>.log" -Tail 100
 # Get fingerprint from server:
 ssh-keyscan -t ed25519 backup.example.com
 
-# Add to credentials file or use -ExpectedHostFingerprint parameter
+# Add to credentials file or use -ExpectedHostFingerprint parameter to upload.ps1
 ```
 
 **Problem: Scheduled task fails after server reinstall/key change**
