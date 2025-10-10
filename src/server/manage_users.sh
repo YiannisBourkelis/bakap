@@ -410,14 +410,29 @@ info_user() {
         local apparent_size=$(get_apparent_size "$home_dir")
         local uploads_size=$(get_actual_size "$home_dir/uploads")
         local versions_actual=$(get_actual_size "$home_dir/versions")
-        local versions_apparent=$(get_apparent_size "$home_dir/versions")
         
-        # Calculate real space savings from Btrfs deduplication
-        # If snapshots were independent copies, they would take versions_apparent space
-        # But due to Btrfs CoW, they only take versions_actual space
-        # However, versions_actual includes the shared blocks with uploads
-        # Real savings = what we would expect (uploads + versions_apparent) - what we actually use (actual_size)
-        local expected_without_dedup=$(echo "$uploads_size + $versions_apparent" | bc)
+        # Calculate what the snapshots would take if they were independent copies
+        # Count snapshots and calculate total apparent size of all files in all snapshots
+        local versions_dir="$home_dir/versions"
+        local snapshot_count=0
+        local versions_if_independent="0.00"
+        
+        if [ -d "$versions_dir" ]; then
+            snapshot_count=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+            
+            # Calculate apparent size of each snapshot independently
+            while IFS= read -r snapshot; do
+                if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
+                    local snapshot_apparent=$(get_apparent_size "$snapshot")
+                    versions_if_independent=$(echo "$versions_if_independent + $snapshot_apparent" | bc)
+                fi
+            done < <(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+        fi
+        
+        # Real space savings from Btrfs deduplication
+        # Without dedup: uploads + sum of all snapshot apparent sizes
+        # With dedup (actual): current total actual usage
+        local expected_without_dedup=$(echo "$uploads_size + $versions_if_independent" | bc)
         local space_saved=$(echo "$expected_without_dedup - $actual_size" | bc)
         
         # Calculate efficiency percentage
@@ -428,8 +443,7 @@ info_user() {
         
         echo "Disk Usage:"
         echo "  Uploads:            ${uploads_size} MB"
-        echo "  Versions (actual):  ${versions_actual} MB"
-        echo "  Versions (apparent): ${versions_apparent} MB"
+        echo "  Snapshots (${snapshot_count}):       ${versions_actual} MB (deduplicated)"
         echo "  Total (actual):     ${actual_size} MB"
         echo "  Total (if no dedup): ${expected_without_dedup} MB"
         echo "  Space saved:        ${space_saved} MB (${efficiency_pct}% efficient)"
