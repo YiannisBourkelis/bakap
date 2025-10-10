@@ -406,23 +406,18 @@ info_user() {
     fi
     
     if [ "$has_files" -eq 1 ]; then
-        local actual_size=$(get_actual_size "$home_dir")
-        local uploads_size=$(get_actual_size "$home_dir/uploads")
-        local versions_actual=$(get_actual_size "$home_dir/versions")
-        
-        # Calculate space savings using logical file sizes (what it would be without Btrfs CoW)
+        # Use btrfs filesystem du for accurate shared/exclusive breakdown
         local versions_dir="$home_dir/versions"
         local snapshot_count=0
         local total_logical_size="0.00"
+        local uploads_logical=$(get_apparent_size "$home_dir/uploads")
         
         if [ -d "$versions_dir" ]; then
             snapshot_count=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
             
-            # For each snapshot, sum the logical file sizes (not physical disk usage)
-            # This represents what the snapshot would take if it were independent
+            # Sum logical file sizes for all snapshots
             while IFS= read -r snapshot; do
                 if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
-                    # Sum all logical file sizes in this snapshot
                     local snapshot_bytes=$(find "$snapshot" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
                     if [ "$snapshot_bytes" -gt 0 ]; then
                         local snapshot_mb=$(echo "scale=2; $snapshot_bytes / 1024 / 1024" | bc)
@@ -432,27 +427,59 @@ info_user() {
             done < <(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
         fi
         
-        # Also get logical size of uploads
-        local uploads_logical=$(get_apparent_size "$home_dir/uploads")
-        
-        # Calculate what the total would be without Btrfs block-level deduplication
-        # Logical size = sum of all file sizes in uploads + all snapshots (as if independent)
+        # Calculate logical size (what it would be without Btrfs CoW)
         local total_logical=$(echo "$uploads_logical + $total_logical_size" | bc)
         
-        # Space saved by Btrfs CoW = logical size - actual physical disk usage
-        local space_saved=$(echo "$total_logical - $actual_size" | bc)
-        
-        # Calculate efficiency percentage
+        # Try to get actual physical usage using btrfs filesystem du
+        local physical_usage=""
+        local space_saved=""
         local efficiency_pct="0"
-        if [ $(echo "$total_logical > 0" | bc) -eq 1 ]; then
-            efficiency_pct=$(echo "scale=1; ($space_saved / $total_logical) * 100" | bc)
+        
+        if command -v btrfs &>/dev/null; then
+            # Get exclusive + shared bytes for the home directory
+            local btrfs_output=$(btrfs filesystem du -s "$home_dir" 2>/dev/null)
+            if [ -n "$btrfs_output" ]; then
+                # Parse: "Total   Exclusive  Set shared  Filename"
+                # We want the "Total" column (first column with size)
+                local total_bytes=$(echo "$btrfs_output" | tail -1 | awk '{print $1}')
+                
+                # Convert human-readable to bytes if needed, then to MB
+                if [[ "$total_bytes" =~ ^[0-9.]+[KMGT]?$ ]]; then
+                    # Parse the size (e.g., "268.50MiB" or "134217728")
+                    local physical_mb=$(echo "$btrfs_output" | tail -1 | awk '{
+                        size=$1; 
+                        if (size ~ /G/) { gsub(/[^0-9.]/, "", size); print size * 1024 }
+                        else if (size ~ /M/) { gsub(/[^0-9.]/, "", size); print size }
+                        else if (size ~ /K/) { gsub(/[^0-9.]/, "", size); print size / 1024 }
+                        else { print size / 1024 / 1024 }
+                    }')
+                    
+                    space_saved=$(echo "$total_logical - $physical_mb" | bc)
+                    physical_usage="${physical_mb} MB"
+                    
+                    if [ $(echo "$total_logical > 0" | bc) -eq 1 ]; then
+                        efficiency_pct=$(echo "scale=1; ($space_saved / $total_logical) * 100" | bc)
+                    fi
+                fi
+            fi
+        fi
+        
+        # Fallback to du-based calculation if btrfs filesystem du failed
+        if [ -z "$physical_usage" ]; then
+            local actual_size=$(get_actual_size "$home_dir")
+            space_saved=$(echo "$total_logical - $actual_size" | bc)
+            physical_usage="${actual_size} MB"
+            
+            if [ $(echo "$total_logical > 0" | bc) -eq 1 ]; then
+                efficiency_pct=$(echo "scale=1; ($space_saved / $total_logical) * 100" | bc)
+            fi
         fi
         
         echo "Disk Usage:"
-        echo "  Uploads:            ${uploads_size} MB (actual disk usage)"
-        echo "  Snapshots (${snapshot_count}):       ${versions_actual} MB (shared blocks via Btrfs)"
-        echo "  Total (actual):     ${actual_size} MB (with deduplication)"
-        echo "  Logical size:       ${total_logical} MB (if independent copies)"
+        echo "  Uploads:            ${uploads_logical} MB (current files)"
+        echo "  Snapshots (${snapshot_count}):       ${total_logical_size} MB (logical size)"
+        echo "  Total logical:      ${total_logical} MB (sum of all files)"
+        echo "  Physical usage:     ${physical_usage} (with Btrfs deduplication)"
         echo "  Space saved:        ${space_saved} MB (${efficiency_pct}% efficient)"
     else
         echo "Disk Usage:"
