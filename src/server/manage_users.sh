@@ -414,7 +414,18 @@ info_user() {
         # Calculate space saved by Btrfs snapshots (copy-on-write)
         local versions_actual=$(get_actual_size "$home_dir/versions")
         local versions_apparent=$(get_apparent_size "$home_dir/versions")
+        
+        # Calculate space saved: if apparent > actual, show savings, otherwise show "minimal"
         local space_saved=$(echo "$versions_apparent - $versions_actual" | bc)
+        local space_saved_display=""
+        
+        # Check if space_saved is positive (use bc for comparison)
+        if [ $(echo "$space_saved > 0" | bc) -eq 1 ]; then
+            space_saved_display="${space_saved} MB saved by Btrfs snapshots"
+        else
+            # For Btrfs, shared blocks may not show up in this calculation
+            space_saved_display="Shared blocks tracked by Btrfs"
+        fi
         
         echo "Disk Usage:"
         echo "  Total (actual):     ${actual_size} MB"
@@ -422,7 +433,7 @@ info_user() {
         echo "  Uploads:            ${uploads_size} MB"
         echo "  Versions (actual):  ${versions_actual} MB"
         echo "  Versions (apparent): ${versions_apparent} MB"
-        echo "  Space saved:        ${space_saved} MB (via Btrfs snapshots)"
+        echo "  Efficiency:         ${space_saved_display}"
     else
         echo "Disk Usage:"
         echo "  No files uploaded yet (0.00 MB)"
