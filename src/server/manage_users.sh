@@ -409,31 +409,30 @@ info_user() {
         local actual_size=$(get_actual_size "$home_dir")
         local apparent_size=$(get_apparent_size "$home_dir")
         local uploads_size=$(get_actual_size "$home_dir/uploads")
-        local versions_size=$(get_actual_size "$home_dir/versions")
-        
-        # Calculate space saved by Btrfs snapshots (copy-on-write)
         local versions_actual=$(get_actual_size "$home_dir/versions")
         local versions_apparent=$(get_apparent_size "$home_dir/versions")
         
-        # Calculate space saved: if apparent > actual, show savings, otherwise show "minimal"
-        local space_saved=$(echo "$versions_apparent - $versions_actual" | bc)
-        local space_saved_display=""
+        # Calculate real space savings from Btrfs deduplication
+        # If snapshots were independent copies, they would take versions_apparent space
+        # But due to Btrfs CoW, they only take versions_actual space
+        # However, versions_actual includes the shared blocks with uploads
+        # Real savings = what we would expect (uploads + versions_apparent) - what we actually use (actual_size)
+        local expected_without_dedup=$(echo "$uploads_size + $versions_apparent" | bc)
+        local space_saved=$(echo "$expected_without_dedup - $actual_size" | bc)
         
-        # Check if space_saved is positive (use bc for comparison)
-        if [ $(echo "$space_saved > 0" | bc) -eq 1 ]; then
-            space_saved_display="${space_saved} MB saved by Btrfs snapshots"
-        else
-            # For Btrfs, shared blocks may not show up in this calculation
-            space_saved_display="Shared blocks tracked by Btrfs"
+        # Calculate efficiency percentage
+        local efficiency_pct="0"
+        if [ $(echo "$expected_without_dedup > 0" | bc) -eq 1 ]; then
+            efficiency_pct=$(echo "scale=1; ($space_saved / $expected_without_dedup) * 100" | bc)
         fi
         
         echo "Disk Usage:"
-        echo "  Total (actual):     ${actual_size} MB"
-        echo "  Total (apparent):   ${apparent_size} MB"
         echo "  Uploads:            ${uploads_size} MB"
         echo "  Versions (actual):  ${versions_actual} MB"
         echo "  Versions (apparent): ${versions_apparent} MB"
-        echo "  Efficiency:         ${space_saved_display}"
+        echo "  Total (actual):     ${actual_size} MB"
+        echo "  Total (if no dedup): ${expected_without_dedup} MB"
+        echo "  Space saved:        ${space_saved} MB (${efficiency_pct}% efficient)"
     else
         echo "Disk Usage:"
         echo "  No files uploaded yet (0.00 MB)"
