@@ -410,56 +410,50 @@ info_user() {
         local uploads_size=$(get_actual_size "$home_dir/uploads")
         local versions_actual=$(get_actual_size "$home_dir/versions")
         
-        # Calculate space savings using Btrfs-specific information
+        # Calculate space savings using logical file sizes (what it would be without Btrfs CoW)
         local versions_dir="$home_dir/versions"
         local snapshot_count=0
-        local total_exclusive="0"
-        local total_if_independent="0.00"
+        local total_logical_size="0.00"
         
         if [ -d "$versions_dir" ]; then
             snapshot_count=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
             
-            # For each snapshot, calculate what it would take if independent (sum of all file sizes)
+            # For each snapshot, sum the logical file sizes (not physical disk usage)
+            # This represents what the snapshot would take if it were independent
             while IFS= read -r snapshot; do
                 if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
-                    # Get apparent size (sum of all file sizes) for this snapshot
-                    local snapshot_size=$(get_apparent_size "$snapshot")
-                    total_if_independent=$(echo "$total_if_independent + $snapshot_size" | bc)
-                    
-                    # Try to get exclusive space using Btrfs qgroup (if available)
-                    if command -v btrfs &>/dev/null && btrfs subvolume show "$snapshot" &>/dev/null 2>&1; then
-                        # Get subvolume ID
-                        local subvol_id=$(btrfs subvolume show "$snapshot" 2>/dev/null | grep -oP '(?<=Subvolume ID:)\s+\d+' | tr -d ' ')
-                        if [ -n "$subvol_id" ]; then
-                            # Try to get exclusive size (this requires quota enabled)
-                            local exclusive_bytes=$(btrfs qgroup show -re "$snapshot" 2>/dev/null | awk -v id="0/$subvol_id" '$1 == id {print $2}' | head -1)
-                            if [ -n "$exclusive_bytes" ] && [ "$exclusive_bytes" -gt 0 ]; then
-                                local exclusive_mb=$(echo "scale=2; $exclusive_bytes / 1024 / 1024" | bc)
-                                total_exclusive=$(echo "$total_exclusive + $exclusive_mb" | bc)
-                            fi
-                        fi
+                    # Sum all logical file sizes in this snapshot
+                    local snapshot_bytes=$(find "$snapshot" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+                    if [ "$snapshot_bytes" -gt 0 ]; then
+                        local snapshot_mb=$(echo "scale=2; $snapshot_bytes / 1024 / 1024" | bc)
+                        total_logical_size=$(echo "$total_logical_size + $snapshot_mb" | bc)
                     fi
                 fi
             done < <(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
         fi
         
-        # Calculate expected size without deduplication
-        # Each snapshot would contain full copies of all its files
-        local expected_without_dedup=$(echo "$uploads_size + $total_if_independent" | bc)
-        local space_saved=$(echo "$expected_without_dedup - $actual_size" | bc)
+        # Also get logical size of uploads
+        local uploads_logical=$(get_apparent_size "$home_dir/uploads")
+        
+        # Calculate what the total would be without Btrfs block-level deduplication
+        # Logical size = sum of all file sizes in uploads + all snapshots (as if independent)
+        local total_logical=$(echo "$uploads_logical + $total_logical_size" | bc)
+        
+        # Space saved by Btrfs CoW = logical size - actual physical disk usage
+        local space_saved=$(echo "$total_logical - $actual_size" | bc)
         
         # Calculate efficiency percentage
         local efficiency_pct="0"
-        if [ $(echo "$expected_without_dedup > 0" | bc) -eq 1 ]; then
-            efficiency_pct=$(echo "scale=1; ($space_saved / $expected_without_dedup) * 100" | bc)
+        if [ $(echo "$total_logical > 0" | bc) -eq 1 ]; then
+            efficiency_pct=$(echo "scale=1; ($space_saved / $total_logical) * 100" | bc)
         fi
         
         echo "Disk Usage:"
-        echo "  Uploads:            ${uploads_size} MB"
+        echo "  Uploads:            ${uploads_size} MB (actual disk usage)"
         echo "  Snapshots (${snapshot_count}):       ${versions_actual} MB (shared blocks via Btrfs)"
-        echo "  Total (actual):     ${actual_size} MB"
-        echo "  Without sharing:    ${expected_without_dedup} MB"
-        echo "  Space saved:        ${space_saved} MB (${efficiency_pct}% reduction)"
+        echo "  Total (actual):     ${actual_size} MB (with deduplication)"
+        echo "  Logical size:       ${total_logical} MB (if independent copies)"
+        echo "  Space saved:        ${space_saved} MB (${efficiency_pct}% efficient)"
     else
         echo "Disk Usage:"
         echo "  No files uploaded yet (0.00 MB)"
