@@ -223,10 +223,10 @@ echo "\$(date '+%F %T') Version: $BAKAP_VERSION" >> "\$LOG"
 echo "\$(date '+%F %T') Commit: $BAKAP_COMMIT" >> "\$LOG"
 echo "\$(date '+%F %T') ========================================" >> "\$LOG"
 
-# Watch /home recursively and react to close_write and moved_to events only
-# close_write: fired when a file is written and closed (upload complete)
-# moved_to: fired when a file is moved into the directory
-# We deliberately exclude 'create' to avoid snapshotting partial files during long uploads
+# Watch /home recursively and react to close_write and moved_to events
+# close_write: fired when a file is written and closed (direct uploads)
+# moved_to: fired when a file is moved/renamed (atomic uploads via temp files)
+# Strategy: Use both events but add grace period to allow temp files to be renamed
 inotifywait -m -r /home -e close_write -e moved_to --format '%w%f %e' |
 while read path event; do
     # Only handle events that happen inside an uploads directory
@@ -273,70 +273,48 @@ while read path event; do
     # Update activity timestamp (we just saw a file event)
     echo "\$now" > "\$activity_file" 2>/dev/null || true
     
-    # If another process is already handling this user, skip this event
+    # Check if a monitor process is already running for this user
     if [ -f "\$processing_file" ]; then
-        # Check if the processing file is stale (older than 2x inactivity window)
-        processing_started=\$(cat "\$processing_file" 2>/dev/null || echo 0)
-        age=\$((now - processing_started))
-        if [ "\$age" -gt \$((INACTIVITY_WINDOW * 2)) ]; then
-            # Stale lock, remove it
-            echo "\$(date '+%F %T') User \$user: removing stale processing lock (age: \${age}s)" >> "\$LOG"
-            rm -f "\$processing_file"
-        else
-            # Active processing, skip this event
-            continue
-        fi
+        # Monitor already running, just update activity and let it handle the snapshot
+        continue
     fi
     
-    # Spawn background process to handle the debounced snapshot
-    # This allows the main loop to continue consuming events immediately
+    # Spawn a single background monitor process for this user
+    # This process will keep checking for inactivity and create snapshot when ready
+    # Only ONE process per user, regardless of how many files are uploaded
     (
-        # Mark that we're processing this user (record when we started waiting)
-        wait_started=\$(date +%s)
-        echo "\$wait_started" > "\$processing_file" 2>/dev/null || true
+        # Mark that we're monitoring this user
+        monitor_pid=\$\$
+        echo "\$monitor_pid" > "\$processing_file" 2>/dev/null || true
         
-        # Wait for inactivity window
-        sleep "\$INACTIVITY_WINDOW"
+        # Keep monitoring until inactivity window is reached
+        while true; do
+            sleep 5  # Check every 5 seconds
+            
+            # Get last activity timestamp
+            last_activity=\$(cat "\$activity_file" 2>/dev/null || echo 0)
+            current_time=\$(date +%s)
+            idle_time=\$((current_time - last_activity))
+            
+            # If we've been idle for the inactivity window, create snapshot
+            if [ "\$idle_time" -ge "\$INACTIVITY_WINDOW" ]; then
+                break
+            fi
+            
+            # Safety: if we've been running for more than SNAPSHOT_INTERVAL, force snapshot
+            if [ "\$idle_time" -ge "\$SNAPSHOT_INTERVAL" ]; then
+                echo "\$(date '+%F %T') User \$user: forcing snapshot after \$SNAPSHOT_INTERVAL seconds" >> "\$LOG"
+                break
+            fi
+        done
         
-        # Check if there was more activity during our wait
-        last_activity=\$(cat "\$activity_file" 2>/dev/null || echo 0)
-        
-        # If activity happened AFTER we started waiting, skip snapshot
-        if [ "\$last_activity" -gt "\$wait_started" ]; then
-            echo "\$(date '+%F %T') User \$user: new activity detected during wait, skipping snapshot" >> "\$LOG"
-            rm -f "\$processing_file"
-            exit 0
-        fi
+        # Ready to create snapshot after inactivity period
+        snapshot_reason="upload complete (no activity for \${idle_time}s)"
         
         # Check if any files are still open (in-progress uploads)
         open_files=\$(lsof +D "/home/\$user/uploads" 2>/dev/null | grep -E "\\s+[0-9]+[uw]" | wc -l || echo 0)
-        
-        # Determine if we should create a snapshot
-        should_snapshot=false
-        snapshot_reason=""
-        now_check=\$(date +%s)
-        
-        if [ "\$open_files" -eq 0 ]; then
-            # All files closed and no recent activity - take snapshot
-            should_snapshot=true
-            snapshot_reason="upload complete (no activity for \${INACTIVITY_WINDOW}s)"
-        elif [ -f "\$snapshot_file" ]; then
-            # Files still open, check if periodic interval has elapsed
-            last_snapshot=\$(cat "\$snapshot_file" 2>/dev/null || echo 0)
-            time_since_snapshot=\$((now_check - last_snapshot))
-            
-            if [ "\$time_since_snapshot" -ge "\$SNAPSHOT_INTERVAL" ]; then
-                should_snapshot=true
-                snapshot_reason="periodic (\${time_since_snapshot}s since last, \$open_files files still open)"
-            fi
-        fi
-        
-        # Clean up processing lock
-        rm -f "\$processing_file"
-        
-        # Skip snapshot if not time yet
-        if [ "\$should_snapshot" = "false" ]; then
-            exit 0
+        if [ "\$open_files" -gt 0 ]; then
+            snapshot_reason="forced snapshot (\$open_files files still open)"
         fi
         
         # Check if uploads directory has files
