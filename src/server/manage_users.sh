@@ -282,7 +282,7 @@ list_users() {
                     else { print size / 1024 / 1024 }
                 }')
                 
-                actual_size=$(echo "$exclusive_mb + $shared_mb" | bc)
+                actual_size=$(echo "scale=2; ($exclusive_mb + $shared_mb) / 1" | bc)
             fi
         fi
         
@@ -312,7 +312,7 @@ list_users() {
             done < <(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
         fi
         
-        apparent_size=$(echo "$uploads_logical + $snapshots_logical" | bc)
+        apparent_size=$(echo "scale=2; ($uploads_logical + $snapshots_logical) / 1" | bc)
         
         # Get last backup date
         local backup_info=$(get_last_backup_date "$user")
