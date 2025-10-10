@@ -147,45 +147,75 @@ get_last_backup_date() {
     fi
 }
 
-# Get last connection time for a user (SSH/SFTP authentication)
-get_last_connection() {
-    local user="$1"
+# Build a dictionary of all user last connections (called once for performance)
+# Returns associative array: username -> "formatted_date|epoch"
+build_connection_cache() {
+    declare -gA CONNECTION_CACHE
     
     # Try systemd journal first (Debian 12+)
     if command -v journalctl &>/dev/null; then
-        local last_auth=$(journalctl -u ssh.service --since "90 days ago" 2>/dev/null | \
-            grep -i "Accepted password for $user\|Accepted publickey for $user" | \
-            tail -1 | \
-            awk '{print $1, $2, $3}')
-        
-        if [ -n "$last_auth" ]; then
-            # Convert to epoch timestamp
-            local epoch=$(date -d "$last_auth" +%s 2>/dev/null || echo 0)
-            if [ "$epoch" -gt 0 ]; then
-                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                echo "$formatted|$epoch"
-                return
+        # Get all accepted authentications in last 90 days, extract username and timestamp
+        while IFS= read -r line; do
+            # Extract username from "Accepted password for USERNAME" or "Accepted publickey for USERNAME"
+            local user=$(echo "$line" | grep -oP '(?<=Accepted (password|publickey) for )[^ ]+' | head -1)
+            if [ -n "$user" ]; then
+                # Extract timestamp (first 3 fields: Oct 10 08:15:30)
+                local timestamp=$(echo "$line" | awk '{print $1, $2, $3}')
+                local epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo 0)
+                
+                if [ "$epoch" -gt 0 ]; then
+                    # Only store if this is newer than what we have (or first entry)
+                    if [ -z "${CONNECTION_CACHE[$user]}" ]; then
+                        local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                        CONNECTION_CACHE[$user]="$formatted|$epoch"
+                    else
+                        local existing_epoch=$(echo "${CONNECTION_CACHE[$user]}" | cut -d'|' -f2)
+                        if [ "$epoch" -gt "$existing_epoch" ]; then
+                            local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                            CONNECTION_CACHE[$user]="$formatted|$epoch"
+                        fi
+                    fi
+                fi
             fi
-        fi
+        done < <(journalctl -u ssh.service --since "90 days ago" 2>/dev/null | grep -i "Accepted password for\|Accepted publickey for")
+        return
     fi
     
     # Fallback to auth.log if available
     if [ -f /var/log/auth.log ]; then
-        local last_auth=$(grep -i "Accepted password for $user\|Accepted publickey for $user" /var/log/auth.log 2>/dev/null | \
-            tail -1 | \
-            awk '{print $1, $2, $3}')
-        
-        if [ -n "$last_auth" ]; then
-            local epoch=$(date -d "$last_auth" +%s 2>/dev/null || echo 0)
-            if [ "$epoch" -gt 0 ]; then
-                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                echo "$formatted|$epoch"
-                return
+        while IFS= read -r line; do
+            local user=$(echo "$line" | grep -oP '(?<=Accepted (password|publickey) for )[^ ]+' | head -1)
+            if [ -n "$user" ]; then
+                local timestamp=$(echo "$line" | awk '{print $1, $2, $3}')
+                local epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo 0)
+                
+                if [ "$epoch" -gt 0 ]; then
+                    if [ -z "${CONNECTION_CACHE[$user]}" ]; then
+                        local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                        CONNECTION_CACHE[$user]="$formatted|$epoch"
+                    else
+                        local existing_epoch=$(echo "${CONNECTION_CACHE[$user]}" | cut -d'|' -f2)
+                        if [ "$epoch" -gt "$existing_epoch" ]; then
+                            local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                            CONNECTION_CACHE[$user]="$formatted|$epoch"
+                        fi
+                    fi
+                fi
             fi
-        fi
+        done < <(grep -i "Accepted password for\|Accepted publickey for" /var/log/auth.log 2>/dev/null)
     fi
+}
+
+# Get last connection time for a user from cache
+get_last_connection() {
+    local user="$1"
     
-    echo "Never|0"
+    # Return from cache if available
+    if [ -n "${CONNECTION_CACHE[$user]}" ]; then
+        echo "${CONNECTION_CACHE[$user]}"
+    else
+        echo "Never|0"
+    fi
 }
 
 # List all backup users with their disk usage
@@ -200,6 +230,9 @@ list_users() {
         echo "No backup users found."
         return
     fi
+    
+    # Build connection cache once for all users (performance optimization)
+    build_connection_cache
     
     local total_actual="0.00"
     local total_apparent="0.00"
@@ -340,6 +373,9 @@ info_user() {
     echo "Groups: $(groups "$username" | cut -d: -f2)"
     echo "Home: $home_dir"
     echo ""
+    
+    # Build connection cache for lookups
+    build_connection_cache
     
     # Connection activity
     local conn_info=$(get_last_connection "$username")
