@@ -229,11 +229,15 @@ echo "\$(date '+%F %T') ========================================" >> "\$LOG"
 # Strategy: Use both events but add grace period to allow temp files to be renamed
 inotifywait -m -r /home -e close_write -e moved_to --format '%w%f %e' |
 while read path event; do
+    # Log ALL events for debugging (will be noisy but helpful)
+    echo "\$(date '+%F %T') Raw event: path=\$path, event=\$event" >> "\$LOG"
+    
     # Only handle events that happen inside an uploads directory
     case "\$path" in
         */uploads|*/uploads/*)
             ;;
         *)
+            echo "\$(date '+%F %T') Event ignored (not in uploads): path=\$path" >> "\$LOG"
             continue
             ;;
     esac
