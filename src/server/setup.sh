@@ -223,11 +223,11 @@ echo "\$(date '+%F %T') Version: $BAKAP_VERSION" >> "\$LOG"
 echo "\$(date '+%F %T') Commit: $BAKAP_COMMIT" >> "\$LOG"
 echo "\$(date '+%F %T') ========================================" >> "\$LOG"
 
-# Watch /home recursively and react to close_write and moved_to events
-# close_write: fired when a file is written and closed (direct uploads)
-# moved_to: fired when a file is moved/renamed (atomic uploads via temp files)
-# Strategy: Use both events but add grace period to allow temp files to be renamed
-inotifywait -m -r /home -e close_write -e moved_to --format '%w%f %e' |
+# Watch /home recursively and react to close_write events
+# close_write: fired when a file is written and closed
+# This captures both direct uploads and atomic uploads (temp files)
+# Strategy: Debounce with inactivity window to coalesce multiple uploads
+inotifywait -m -r /home -e close_write --format '%w%f %e' |
 while read path event; do
     # Log ALL events for debugging (will be noisy but helpful)
     echo "\$(date '+%F %T') Raw event: path=\$path, event=\$event" >> "\$LOG"
@@ -279,8 +279,16 @@ while read path event; do
     
     # Check if a monitor process is already running for this user
     if [ -f "\$processing_file" ]; then
-        # Monitor already running, just update activity and let it handle the snapshot
-        continue
+        # Check if the PID in the file is still running
+        old_pid=\$(cat "\$processing_file" 2>/dev/null)
+        if [ -n "\$old_pid" ] && kill -0 "\$old_pid" 2>/dev/null; then
+            # Process is still alive, monitor already running
+            continue
+        else
+            # Stale lock file from crashed/killed process, remove it
+            echo "\$(date '+%Y-%m-%d %H:%M:%S') Removing stale lock file for user \$user (PID \$old_pid no longer exists)" >> /var/log/backup_monitor.log
+            rm -f "\$processing_file"
+        fi
     fi
     
     # Spawn a single background monitor process for this user
@@ -387,6 +395,9 @@ while read path event; do
         
         # Record last snapshot time
         echo "\$now_check" > "\$snapshot_file" 2>/dev/null || true
+        
+        # Clean up processing lock so future uploads can trigger new snapshots
+        rm -f "\$processing_file" 2>/dev/null || true
     ) &  # End subprocess, run in background
 done
 EOF
