@@ -221,9 +221,9 @@ get_last_connection() {
 # List all backup users with their disk usage
 list_users() {
     echo "Backup Users:"
-    echo "============================================================================================"
-    printf "%-12s %8s %8s %6s %16s %16s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Last Snapshot" "Last Connect" "Status"
-    echo "--------------------------------------------------------------------------------------------"
+    echo "========================================================================================================"
+    printf "%-16s %8s %8s %6s %19s %19s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Last Snapshot" "Last Connect" "Status"
+    echo "--------------------------------------------------------------------------------------------------------"
     
     local users=$(get_backup_users)
     if [ -z "$users" ]; then
@@ -309,17 +309,15 @@ list_users() {
             fi
         fi
         
-        # Format dates for display (shorten if needed)
-        local display_backup="${last_date:5}"  # Remove year if format is YYYY-MM-DD HH:MM
-        local display_conn="${last_conn:5}"    # Remove year
-        [ "$last_date" = "Never" ] && display_backup="Never"
-        [ "$last_conn" = "Never" ] && display_conn="Never"
+        # Format dates for display (keep full date/time)
+        local display_backup="$last_date"
+        local display_conn="$last_conn"
         
         # Print with color
         if [ -n "$status_color" ] && [ "$status" != "✓"* ]; then
-            printf "%-12s %8s %8s %6s %16s %16s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$display_backup" "$display_conn" "$status"
+            printf "%-16s %8s %8s %6s %19s %19s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$display_backup" "$display_conn" "$status"
         else
-            printf "%-12s %8s %8s %6s %16s %16s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$display_backup" "$display_conn" "$status"
+            printf "%-16s %8s %8s %6s %19s %19s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$display_backup" "$display_conn" "$status"
         fi
         
         # Sum up totals using bc for decimal arithmetic
@@ -328,8 +326,8 @@ list_users() {
         total_users=$((total_users + 1))
     done <<< "$users"
     
-    echo "--------------------------------------------------------------------------------------------"
-    printf "%-12s %8s %8s %6s\n" "Total: $total_users" "$total_actual" "$total_apparent" ""
+    echo "--------------------------------------------------------------------------------------------------------"
+    printf "%-16s %8s %8s %6s\n" "Total: $total_users" "$total_actual" "$total_apparent" ""
     echo ""
     echo "Note: Size shows real disk usage (Btrfs snapshots share unchanged data)"
     echo "      Apparent shows total if all snapshots were independent copies"
