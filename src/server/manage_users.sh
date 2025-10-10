@@ -20,8 +20,8 @@ https://github.com/YiannisBourkelis/bakap
 Usage: $SCRIPT_NAME <command> [options]
 
 Commands:
-    list                    List all backup users with their disk usage
-    info <username>         Show detailed information about a specific user
+    list                    List all backup users with disk usage and connection status
+    info <username>         Show detailed information including connection activity
     history <username>      Show snapshot history for a user
     search <pattern>        Search for files in latest snapshots
     inactive [days]         List users with no recent uploads (default: 30 days)
@@ -147,12 +147,53 @@ get_last_backup_date() {
     fi
 }
 
+# Get last connection time for a user (SSH/SFTP authentication)
+get_last_connection() {
+    local user="$1"
+    
+    # Try systemd journal first (Debian 12+)
+    if command -v journalctl &>/dev/null; then
+        local last_auth=$(journalctl -u ssh.service --since "90 days ago" 2>/dev/null | \
+            grep -i "Accepted password for $user\|Accepted publickey for $user" | \
+            tail -1 | \
+            awk '{print $1, $2, $3}')
+        
+        if [ -n "$last_auth" ]; then
+            # Convert to epoch timestamp
+            local epoch=$(date -d "$last_auth" +%s 2>/dev/null || echo 0)
+            if [ "$epoch" -gt 0 ]; then
+                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                echo "$formatted|$epoch"
+                return
+            fi
+        fi
+    fi
+    
+    # Fallback to auth.log if available
+    if [ -f /var/log/auth.log ]; then
+        local last_auth=$(grep -i "Accepted password for $user\|Accepted publickey for $user" /var/log/auth.log 2>/dev/null | \
+            tail -1 | \
+            awk '{print $1, $2, $3}')
+        
+        if [ -n "$last_auth" ]; then
+            local epoch=$(date -d "$last_auth" +%s 2>/dev/null || echo 0)
+            if [ "$epoch" -gt 0 ]; then
+                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                echo "$formatted|$epoch"
+                return
+            fi
+        fi
+    fi
+    
+    echo "Never|0"
+}
+
 # List all backup users with their disk usage
 list_users() {
     echo "Backup Users:"
-    echo "==============================================================================="
-    printf "%-15s %10s %10s %8s %18s %s\n" "Username" "Size (MB)" "Apparent" "Snaps" "Last Backup" "Status"
-    echo "-------------------------------------------------------------------------------"
+    echo "============================================================================================"
+    printf "%-12s %8s %8s %6s %16s %16s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Last Snapshot" "Last Connect" "Status"
+    echo "--------------------------------------------------------------------------------------------"
     
     local users=$(get_backup_users)
     if [ -z "$users" ]; then
@@ -191,28 +232,61 @@ list_users() {
         local last_date=$(echo "$backup_info" | cut -d'|' -f1)
         local last_epoch=$(echo "$backup_info" | cut -d'|' -f2)
         
-        # Determine status
+        # Get last connection time
+        local conn_info=$(get_last_connection "$user")
+        local last_conn=$(echo "$conn_info" | cut -d'|' -f1)
+        local conn_epoch=$(echo "$conn_info" | cut -d'|' -f2)
+        
+        # Determine status with improved logic
         local status="OK"
         local status_color=""
-        if [ "$last_date" = "Never" ]; then
-            status="⚠ NEVER"
+        
+        if [ "$last_date" = "Never" ] && [ "$last_conn" = "Never" ]; then
+            # No backup and no connection - never used
+            status="⚠ NEVER USED"
+            status_color="\033[1;33m"  # Yellow
+        elif [ "$last_date" = "Never" ] && [ "$last_conn" != "Never" ]; then
+            # Connected but no snapshot yet (new user or files still uploading)
+            local conn_days=$(( (now - conn_epoch) / 86400 ))
+            status="⚠ No snapshot (conn: ${conn_days}d)"
             status_color="\033[1;33m"  # Yellow
         elif [ "$last_epoch" -gt 0 ]; then
-            local days_ago=$(( (now - last_epoch) / 86400 ))
-            if [ $days_ago -gt 15 ]; then
-                status="⚠ ${days_ago}d ago"
-                status_color="\033[1;33m"  # Yellow
+            local backup_days=$(( (now - last_epoch) / 86400 ))
+            
+            # Check if connection is more recent than backup (no changes scenario)
+            if [ "$conn_epoch" -gt "$last_epoch" ]; then
+                # Connected after last backup = backup running but no changes
+                local conn_days=$(( (now - conn_epoch) / 86400 ))
+                if [ $backup_days -gt 15 ]; then
+                    status="✓ No changes (${backup_days}d)"
+                    status_color="\033[0;32m"  # Green (this is good!)
+                else
+                    status="✓ OK (${backup_days}d)"
+                    status_color="\033[0;32m"  # Green
+                fi
             else
-                status="✓ ${days_ago}d ago"
-                status_color="\033[0;32m"  # Green
+                # Last backup more recent than connection (or no connection logged)
+                if [ $backup_days -gt 15 ]; then
+                    status="⚠ ${backup_days}d ago"
+                    status_color="\033[1;33m"  # Yellow
+                else
+                    status="✓ ${backup_days}d ago"
+                    status_color="\033[0;32m"  # Green
+                fi
             fi
         fi
         
-        # Print with color if status needs attention
+        # Format dates for display (shorten if needed)
+        local display_backup="${last_date:5}"  # Remove year if format is YYYY-MM-DD HH:MM
+        local display_conn="${last_conn:5}"    # Remove year
+        [ "$last_date" = "Never" ] && display_backup="Never"
+        [ "$last_conn" = "Never" ] && display_conn="Never"
+        
+        # Print with color
         if [ -n "$status_color" ] && [ "$status" != "✓"* ]; then
-            printf "%-15s %10s %10s %8s %18s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$last_date" "$status"
+            printf "%-12s %8s %8s %6s %16s %16s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$display_backup" "$display_conn" "$status"
         else
-            printf "%-15s %10s %10s %8s %18s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$last_date" "$status"
+            printf "%-12s %8s %8s %6s %16s %16s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$display_backup" "$display_conn" "$status"
         fi
         
         # Sum up totals using bc for decimal arithmetic
@@ -221,11 +295,19 @@ list_users() {
         total_users=$((total_users + 1))
     done <<< "$users"
     
-    echo "-------------------------------------------------------------------------------"
-    printf "%-15s %10s %10s %8s\n" "Total: $total_users" "$total_actual" "$total_apparent" ""
+    echo "--------------------------------------------------------------------------------------------"
+    printf "%-12s %8s %8s %6s\n" "Total: $total_users" "$total_actual" "$total_apparent" ""
     echo ""
-    echo "Note: Size shows real disk usage (hardlinks counted once)"
-    echo "      Status: ✓ = backed up recently, ⚠ = >15 days since last backup"
+    echo "Note: Size shows real disk usage (Btrfs snapshots share unchanged data)"
+    echo "      Apparent shows total if all snapshots were independent copies"
+    echo "      Last Snapshot shows when the most recent snapshot was created"
+    echo "      Last Connect shows most recent SSH/SFTP authentication"
+    echo "      Status meanings:"
+    echo "        ✓ OK           = Recent snapshot or connection with no changes (good!)"
+    echo "        ✓ No changes   = Backup job running but no file changes detected"
+    echo "        ⚠ NEVER USED   = User never connected"
+    echo "        ⚠ No snapshot  = Connected but no snapshot created yet"
+    echo "        ⚠ Xd ago       = Last snapshot more than 15 days old"
 }
 
 # Show detailed information about a specific user
@@ -259,6 +341,29 @@ info_user() {
     echo "Home: $home_dir"
     echo ""
     
+    # Connection activity
+    local conn_info=$(get_last_connection "$username")
+    local last_conn=$(echo "$conn_info" | cut -d'|' -f1)
+    local conn_epoch=$(echo "$conn_info" | cut -d'|' -f2)
+    
+    echo "Connection Activity:"
+    if [ "$last_conn" != "Never" ] && [ "$conn_epoch" -gt 0 ]; then
+        local now=$(date +%s)
+        local days_ago=$(( (now - conn_epoch) / 86400 ))
+        local hours_ago=$(( (now - conn_epoch) / 3600 ))
+        
+        echo "  Last connection: $last_conn"
+        if [ $hours_ago -lt 24 ]; then
+            echo "  Time since:      ${hours_ago} hours ago"
+        else
+            echo "  Time since:      ${days_ago} days ago"
+        fi
+    else
+        echo "  Last connection: Never"
+        echo "  User has never authenticated via SSH/SFTP"
+    fi
+    echo ""
+    
     # Disk usage - check if directories have actual files first
     local has_files=0
     if [ -n "$(find "$home_dir/uploads" -type f 2>/dev/null | head -1)" ] || \
@@ -272,7 +377,7 @@ info_user() {
         local uploads_size=$(get_actual_size "$home_dir/uploads")
         local versions_size=$(get_actual_size "$home_dir/versions")
         
-        # Calculate space saved by hardlinks in versions directory
+        # Calculate space saved by Btrfs snapshots (copy-on-write)
         local versions_actual=$(get_actual_size "$home_dir/versions")
         local versions_apparent=$(get_apparent_size "$home_dir/versions")
         local space_saved=$(echo "$versions_apparent - $versions_actual" | bc)
@@ -283,7 +388,7 @@ info_user() {
         echo "  Uploads:            ${uploads_size} MB"
         echo "  Versions (actual):  ${versions_actual} MB"
         echo "  Versions (apparent): ${versions_apparent} MB"
-        echo "  Space saved:        ${space_saved} MB (via hardlinks)"
+        echo "  Space saved:        ${space_saved} MB (via Btrfs snapshots)"
     else
         echo "Disk Usage:"
         echo "  No files uploaded yet (0.00 MB)"
