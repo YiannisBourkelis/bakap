@@ -250,15 +250,69 @@ list_users() {
             continue
         fi
         
-        # Calculate sizes
-        local actual_size=$(get_actual_size "$home_dir")
-        local apparent_size=$(get_apparent_size "$home_dir")
+        # Calculate sizes using Btrfs-aware method
+        local actual_size="0.00"
+        local apparent_size="0.00"
         
-        # Count snapshots
+        # Try to get actual physical usage from btrfs filesystem du
+        if command -v btrfs &>/dev/null; then
+            local btrfs_output=$(btrfs filesystem du -s "$home_dir" 2>/dev/null)
+            if [ -n "$btrfs_output" ]; then
+                local data_line=$(echo "$btrfs_output" | tail -1)
+                local exclusive_raw=$(echo "$data_line" | awk '{print $2}')
+                local shared_raw=$(echo "$data_line" | awk '{print $3}')
+                
+                # Convert to MB
+                local exclusive_mb=$(echo "$exclusive_raw" | awk '{
+                    size=$1;
+                    if (size ~ /GiB/) { gsub(/[^0-9.]/, "", size); print size * 1024 }
+                    else if (size ~ /MiB/) { gsub(/[^0-9.]/, "", size); print size }
+                    else if (size ~ /KiB/) { gsub(/[^0-9.]/, "", size); print size / 1024 }
+                    else if (size ~ /B$/) { gsub(/[^0-9.]/, "", size); print size / 1024 / 1024 }
+                    else { print size / 1024 / 1024 }
+                }')
+                
+                local shared_mb=$(echo "$shared_raw" | awk '{
+                    size=$1;
+                    if (size ~ /GiB/) { gsub(/[^0-9.]/, "", size); print size * 1024 }
+                    else if (size ~ /MiB/) { gsub(/[^0-9.]/, "", size); print size }
+                    else if (size ~ /KiB/) { gsub(/[^0-9.]/, "", size); print size / 1024 }
+                    else if (size ~ /B$/) { gsub(/[^0-9.]/, "", size); print size / 1024 / 1024 }
+                    else if (size == "-") { print 0 }
+                    else { print size / 1024 / 1024 }
+                }')
+                
+                actual_size=$(echo "$exclusive_mb + $shared_mb" | bc)
+            fi
+        fi
+        
+        # Fallback to du if btrfs command failed
+        if [ "$actual_size" = "0.00" ]; then
+            actual_size=$(get_actual_size "$home_dir")
+        fi
+        
+        # Calculate logical size (sum of all files in uploads + all snapshots)
+        local uploads_logical=$(get_apparent_size "$home_dir/uploads")
+        local snapshots_logical="0.00"
+        
+        # Count snapshots and calculate logical size
         local snapshot_count=0
         if [ -d "$home_dir/versions" ]; then
             snapshot_count=$(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+            
+            # Sum logical sizes of all snapshots
+            while IFS= read -r snapshot; do
+                if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
+                    local snap_bytes=$(find "$snapshot" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+                    if [ "$snap_bytes" -gt 0 ]; then
+                        local snap_mb=$(echo "scale=2; $snap_bytes / 1024 / 1024" | bc)
+                        snapshots_logical=$(echo "$snapshots_logical + $snap_mb" | bc)
+                    fi
+                fi
+            done < <(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
         fi
+        
+        apparent_size=$(echo "$uploads_logical + $snapshots_logical" | bc)
         
         # Get last backup date
         local backup_info=$(get_last_backup_date "$user")
@@ -329,8 +383,9 @@ list_users() {
     echo "--------------------------------------------------------------------------------------------------------"
     printf "%-16s %8s %8s %6s\n" "Total: $total_users" "$total_actual" "$total_apparent" ""
     echo ""
-    echo "Note: Size shows real disk usage (Btrfs snapshots share unchanged data)"
-    echo "      Apparent shows total if all snapshots were independent copies"
+    echo "Note: Size(MB) shows physical disk usage with Btrfs deduplication"
+    echo "      Apparent shows logical size (sum of all files as if independent copies)"
+    echo "      The difference shows space saved by Btrfs CoW snapshots"
     echo "      Last Snapshot shows when the most recent snapshot was created"
     echo "      Last Connect shows most recent SSH/SFTP authentication"
     echo "      Status meanings:"
