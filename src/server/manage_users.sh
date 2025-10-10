@@ -434,32 +434,51 @@ info_user() {
         local physical_usage=""
         local space_saved=""
         local efficiency_pct="0"
+        local exclusive_size=""
+        local shared_size=""
         
         if command -v btrfs &>/dev/null; then
             # Get exclusive + shared bytes for the home directory
             local btrfs_output=$(btrfs filesystem du -s "$home_dir" 2>/dev/null)
             if [ -n "$btrfs_output" ]; then
                 # Parse: "Total   Exclusive  Set shared  Filename"
-                # We want the "Total" column (first column with size)
-                local total_bytes=$(echo "$btrfs_output" | tail -1 | awk '{print $1}')
+                # Extract Exclusive and Set shared columns
+                local data_line=$(echo "$btrfs_output" | tail -1)
                 
-                # Convert human-readable to bytes if needed, then to MB
-                if [[ "$total_bytes" =~ ^[0-9.]+[KMGT]?$ ]]; then
-                    # Parse the size (e.g., "268.50MiB" or "134217728")
-                    local physical_mb=$(echo "$btrfs_output" | tail -1 | awk '{
-                        size=$1; 
-                        if (size ~ /G/) { gsub(/[^0-9.]/, "", size); print size * 1024 }
-                        else if (size ~ /M/) { gsub(/[^0-9.]/, "", size); print size }
-                        else if (size ~ /K/) { gsub(/[^0-9.]/, "", size); print size / 1024 }
-                        else { print size / 1024 / 1024 }
-                    }')
-                    
-                    space_saved=$(echo "$total_logical - $physical_mb" | bc)
-                    physical_usage="${physical_mb} MB"
-                    
-                    if [ $(echo "$total_logical > 0" | bc) -eq 1 ]; then
-                        efficiency_pct=$(echo "scale=1; ($space_saved / $total_logical) * 100" | bc)
-                    fi
+                # Extract exclusive size (2nd column)
+                local exclusive_raw=$(echo "$data_line" | awk '{print $2}')
+                # Extract set shared size (3rd column)
+                local shared_raw=$(echo "$data_line" | awk '{print $3}')
+                
+                # Convert to MB
+                exclusive_size=$(echo "$exclusive_raw" | awk '{
+                    size=$1;
+                    if (size ~ /GiB/) { gsub(/[^0-9.]/, "", size); print size * 1024 }
+                    else if (size ~ /MiB/) { gsub(/[^0-9.]/, "", size); print size }
+                    else if (size ~ /KiB/) { gsub(/[^0-9.]/, "", size); print size / 1024 }
+                    else if (size ~ /B$/) { gsub(/[^0-9.]/, "", size); print size / 1024 / 1024 }
+                    else { print size / 1024 / 1024 }
+                }')
+                
+                shared_size=$(echo "$shared_raw" | awk '{
+                    size=$1;
+                    if (size ~ /GiB/) { gsub(/[^0-9.]/, "", size); print size * 1024 }
+                    else if (size ~ /MiB/) { gsub(/[^0-9.]/, "", size); print size }
+                    else if (size ~ /KiB/) { gsub(/[^0-9.]/, "", size); print size / 1024 }
+                    else if (size ~ /B$/) { gsub(/[^0-9.]/, "", size); print size / 1024 / 1024 }
+                    else if (size == "-") { print 0 }
+                    else { print size / 1024 / 1024 }
+                }')
+                
+                # Physical usage = exclusive + shared (but shared is counted once across all subvolumes)
+                # The real physical storage is approximately: shared_size + exclusive_size
+                local physical_mb=$(echo "$shared_size + $exclusive_size" | bc)
+                
+                space_saved=$(echo "$total_logical - $physical_mb" | bc)
+                physical_usage="${physical_mb} MB"
+                
+                if [ $(echo "$total_logical > 0" | bc) -eq 1 ]; then
+                    efficiency_pct=$(echo "scale=1; ($space_saved / $total_logical) * 100" | bc)
                 fi
             fi
         fi
