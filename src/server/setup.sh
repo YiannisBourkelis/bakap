@@ -249,6 +249,9 @@ while read path event; do
         continue
     fi
     
+    # Log detected event for debugging
+    echo "\$(date '+%F %T') Event detected: user=\$user, path=\$path, event=\$event" >> "\$LOG"
+    
     # Strategy: Debounced snapshots
     # - Record activity timestamp when file event occurs
     # - Wait for inactivity period (no new events) before creating snapshot
