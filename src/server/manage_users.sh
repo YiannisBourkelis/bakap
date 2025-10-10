@@ -303,7 +303,7 @@ list_users() {
                     status="⚠ ${backup_days}d ago"
                     status_color="\033[1;33m"  # Yellow
                 else
-                    status="✓ ${backup_days}d ago"
+                    status="✓ OK (${backup_days}d)"
                     status_color="\033[0;32m"  # Green
                 fi
             fi
