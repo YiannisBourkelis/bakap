@@ -407,32 +407,45 @@ info_user() {
     
     if [ "$has_files" -eq 1 ]; then
         local actual_size=$(get_actual_size "$home_dir")
-        local apparent_size=$(get_apparent_size "$home_dir")
         local uploads_size=$(get_actual_size "$home_dir/uploads")
         local versions_actual=$(get_actual_size "$home_dir/versions")
         
-        # Calculate what the snapshots would take if they were independent copies
-        # Count snapshots and calculate total apparent size of all files in all snapshots
+        # Calculate space savings using Btrfs-specific information
         local versions_dir="$home_dir/versions"
         local snapshot_count=0
-        local versions_if_independent="0.00"
+        local total_exclusive="0"
+        local total_if_independent="0.00"
         
         if [ -d "$versions_dir" ]; then
             snapshot_count=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
             
-            # Calculate apparent size of each snapshot independently
+            # For each snapshot, calculate what it would take if independent (sum of all file sizes)
             while IFS= read -r snapshot; do
                 if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
-                    local snapshot_apparent=$(get_apparent_size "$snapshot")
-                    versions_if_independent=$(echo "$versions_if_independent + $snapshot_apparent" | bc)
+                    # Get apparent size (sum of all file sizes) for this snapshot
+                    local snapshot_size=$(get_apparent_size "$snapshot")
+                    total_if_independent=$(echo "$total_if_independent + $snapshot_size" | bc)
+                    
+                    # Try to get exclusive space using Btrfs qgroup (if available)
+                    if command -v btrfs &>/dev/null && btrfs subvolume show "$snapshot" &>/dev/null 2>&1; then
+                        # Get subvolume ID
+                        local subvol_id=$(btrfs subvolume show "$snapshot" 2>/dev/null | grep -oP '(?<=Subvolume ID:)\s+\d+' | tr -d ' ')
+                        if [ -n "$subvol_id" ]; then
+                            # Try to get exclusive size (this requires quota enabled)
+                            local exclusive_bytes=$(btrfs qgroup show -re "$snapshot" 2>/dev/null | awk -v id="0/$subvol_id" '$1 == id {print $2}' | head -1)
+                            if [ -n "$exclusive_bytes" ] && [ "$exclusive_bytes" -gt 0 ]; then
+                                local exclusive_mb=$(echo "scale=2; $exclusive_bytes / 1024 / 1024" | bc)
+                                total_exclusive=$(echo "$total_exclusive + $exclusive_mb" | bc)
+                            fi
+                        fi
+                    fi
                 fi
             done < <(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
         fi
         
-        # Real space savings from Btrfs deduplication
-        # Without dedup: uploads + sum of all snapshot apparent sizes
-        # With dedup (actual): current total actual usage
-        local expected_without_dedup=$(echo "$uploads_size + $versions_if_independent" | bc)
+        # Calculate expected size without deduplication
+        # Each snapshot would contain full copies of all its files
+        local expected_without_dedup=$(echo "$uploads_size + $total_if_independent" | bc)
         local space_saved=$(echo "$expected_without_dedup - $actual_size" | bc)
         
         # Calculate efficiency percentage
@@ -443,10 +456,10 @@ info_user() {
         
         echo "Disk Usage:"
         echo "  Uploads:            ${uploads_size} MB"
-        echo "  Snapshots (${snapshot_count}):       ${versions_actual} MB (deduplicated)"
+        echo "  Snapshots (${snapshot_count}):       ${versions_actual} MB (shared blocks via Btrfs)"
         echo "  Total (actual):     ${actual_size} MB"
-        echo "  Total (if no dedup): ${expected_without_dedup} MB"
-        echo "  Space saved:        ${space_saved} MB (${efficiency_pct}% efficient)"
+        echo "  Without sharing:    ${expected_without_dedup} MB"
+        echo "  Space saved:        ${space_saved} MB (${efficiency_pct}% reduction)"
     else
         echo "Disk Usage:"
         echo "  No files uploaded yet (0.00 MB)"
