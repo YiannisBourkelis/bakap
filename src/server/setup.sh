@@ -278,9 +278,8 @@ if [ "$ENABLE_SAMBA" = "true" ]; then
    dead time = 15
    
    # Include user-specific configurations
-   # %U is replaced with the connected username at runtime
-   # Note: You may see "Can't find include file .conf" warning at startup - this is normal
-   include = /etc/samba/smb.conf.d/%U.conf
+   # Include all user config files for share visibility during browsing
+   include = /etc/samba/smb.conf.d/*.conf
 SMB
     
     # Configure fail2ban for Samba protection
