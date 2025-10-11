@@ -264,9 +264,10 @@ if [ "$ENABLE_SAMBA" = "true" ]; then
    set quota command =
    
    # Logging
+   syslog only = yes
    log file = /var/log/samba/log.%m
    max log size = 1000
-   log level = 1 auth:3
+   log level = 3
    
    # Performance
    socket options = TCP_NODELAY IPTOS_LOWDELAY SO_KEEPALIVE
@@ -308,13 +309,13 @@ FILTER
     if [ ! -f /etc/fail2ban/jail.d/bakap-samba.conf ]; then
         cat > /etc/fail2ban/jail.d/bakap-samba.conf <<F2B
 # Bakap fail2ban configuration for Samba protection
-# Monitors both authentication logs and VFS audit log
+# Monitors journald for VFS audit entries and Samba auth logs
 [bakap-samba]
 enabled = true
 port = 445
 filter = bakap-samba
-logpath = /var/log/samba/log.*
-          /var/log/samba/audit.log
+backend = systemd
+journalmatch = _SYSTEMD_UNIT=smbd.service
 maxretry = 5
 bantime = 3600
 findtime = 600
@@ -332,40 +333,9 @@ F2B
         echo "  - fail2ban Samba jail is now active"
     fi
     
-    # Configure syslog to capture Samba audit logs
-    # Check if rsyslog or syslog-ng is available
-    if systemctl list-unit-files | grep -q "^rsyslog.service"; then
-        if [ ! -f /etc/rsyslog.d/30-bakap-samba-audit.conf ]; then
-            cat > /etc/rsyslog.d/30-bakap-samba-audit.conf <<'RSYSLOG'
-# Bakap Samba VFS audit logging
-# Captures SMB file operations to separate log file
-local1.*    /var/log/samba/audit.log
-RSYSLOG
-            systemctl restart rsyslog
-            echo "  - Configured rsyslog for Samba audit logging"
-        fi
-    elif systemctl list-unit-files | grep -q "^syslog.service"; then
-        if [ ! -f /etc/syslog.d/30-bakap-samba-audit.conf ]; then
-            cat > /etc/syslog.d/30-bakap-samba-audit.conf <<'SYSLOG'
-# Bakap Samba VFS audit logging
-local1.*    /var/log/samba/audit.log
-SYSLOG
-            systemctl restart syslog
-            echo "  - Configured syslog for Samba audit logging"
-        fi
-    else
-        # No syslog daemon, configure journald forwarding instead
-        echo "  - No syslog daemon found, using journald for audit logging"
-        echo "  - View audit logs with: journalctl SYSLOG_IDENTIFIER=smbd_audit"
-        echo "  - Note: manage_users.sh will parse journald for SMB connections"
-    fi
-    
-    # Ensure audit log file exists with proper permissions (if syslog is available)
-    if systemctl list-unit-files | grep -qE "^(rsyslog|syslog).service"; then
-        touch /var/log/samba/audit.log
-        chmod 640 /var/log/samba/audit.log
-        chown root:adm /var/log/samba/audit.log 2>/dev/null || chown root:root /var/log/samba/audit.log
-    fi
+    # Configure Samba audit logging (journald)
+    echo "  - Samba VFS audit logging configured (using journald)"
+    echo "  - View audit logs with: journalctl SYSLOG_IDENTIFIER=smbd_audit"
     
     # Enable and start Samba services
     echo "Starting Samba services..."

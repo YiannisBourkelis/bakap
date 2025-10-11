@@ -88,7 +88,7 @@ setup_samba_share() {
    vfs objects = full_audit
    full_audit:prefix = %u|%I|%m
    full_audit:success = connect disconnect open close write pwrite
-   full_audit:failure = none
+   full_audit:failure = connect
    full_audit:facility = local1
    full_audit:priority = notice
 EOF
