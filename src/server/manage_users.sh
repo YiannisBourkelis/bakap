@@ -31,6 +31,8 @@ Commands:
     cleanup-all             Cleanup all backup users (keep latest snapshot for each)
     rebuild <username>      Delete all snapshots and create fresh snapshot from uploads
     rebuild-all             Rebuild snapshots for all users (skips users with open files)
+    enable-samba <username> Enable Samba (SMB) sharing for an existing user
+    disable-samba <username> Disable Samba (SMB) sharing for an existing user
     help                    Show this help message
 
 Examples:
@@ -45,6 +47,8 @@ Examples:
     $SCRIPT_NAME cleanup-all
     $SCRIPT_NAME rebuild testuser
     $SCRIPT_NAME rebuild-all
+    $SCRIPT_NAME enable-samba testuser
+    $SCRIPT_NAME disable-samba testuser
 
 Notes:
     - The cleanup command removes old Btrfs snapshots and keeps only the latest
@@ -224,6 +228,150 @@ has_samba_enabled() {
     local username="$1"
     # Check if Samba config file exists for this user
     [ -f "/etc/samba/smb.conf.d/${username}.conf" ]
+}
+
+# Enable Samba sharing for an existing user
+enable_samba() {
+    local username="$1"
+    
+    if [ -z "$username" ]; then
+        echo "Error: Username is required" >&2
+        return 1
+    fi
+    
+    # Check if user exists
+    if ! id "$username" &>/dev/null; then
+        echo "Error: User '$username' does not exist" >&2
+        return 1
+    fi
+    
+    # Check if user is in backupusers group
+    if ! id "$username" | grep -q "backupusers"; then
+        echo "Error: User '$username' is not a backup user" >&2
+        return 1
+    fi
+    
+    # Check if Samba is already enabled
+    if has_samba_enabled "$username"; then
+        echo "Samba sharing is already enabled for user '$username'"
+        return 0
+    fi
+    
+    echo "Enabling Samba sharing for user '$username'..."
+    
+    # Check if Samba is installed
+    if ! command -v smbpasswd &>/dev/null; then
+        echo "ERROR: Samba is not installed on this server."
+        echo "To enable Samba support, run setup.sh with the --samba option:"
+        echo "  ./setup.sh --samba"
+        return 1
+    fi
+    
+    # Check if Samba user already exists
+    if pdbedit -L | grep -q "^$username:"; then
+        echo "Samba user account already exists for '$username'"
+    else
+        # Get user's password from /etc/shadow (we need to extract it)
+        local shadow_entry=$(getent shadow "$username")
+        if [ -z "$shadow_entry" ]; then
+            echo "ERROR: Cannot retrieve password for user '$username'" >&2
+            return 1
+        fi
+        
+        # For Samba, we need the plain text password. Since we don't have it stored,
+        # we'll need to prompt the user to provide it
+        echo "Samba requires the user's password to set up the share."
+        echo "Please enter the password for user '$username':"
+        local password
+        read -s -p "Password: " password
+        echo ""
+        
+        if [ -z "$password" ]; then
+            echo "ERROR: Password cannot be empty" >&2
+            return 1
+        fi
+        
+        # Enable Samba user with the provided password
+        echo -e "$password\n$password" | smbpasswd -a "$username" -s
+    fi
+    
+    # Create Samba configuration for this user with strict security
+    local smb_conf="/etc/samba/smb.conf.d/$username.conf"
+    mkdir -p /etc/samba/smb.conf.d
+    
+    cat > "$smb_conf" << EOF
+[$username-backup]
+   path = /home/$username/uploads
+   browseable = no
+   writable = yes
+   guest ok = no
+   valid users = $username
+   create mask = 0644
+   directory mask = 0755
+   force user = $username
+   force group = backupusers
+   # Strict security settings
+   read only = no
+   public = no
+   printable = no
+   store dos attributes = no
+   map archive = no
+   map hidden = no
+   map system = no
+   map readonly = no
+EOF
+    
+    # Restart Samba services
+    systemctl restart smbd nmbd
+    
+    echo "✓ Samba sharing enabled for user '$username'"
+    echo "  Share name: //$HOSTNAME/$username-backup"
+    echo "  Access credentials: $username / [provided password]"
+}
+
+# Disable Samba sharing for an existing user
+disable_samba() {
+    local username="$1"
+    
+    if [ -z "$username" ]; then
+        echo "Error: Username is required" >&2
+        return 1
+    fi
+    
+    # Check if user exists
+    if ! id "$username" &>/dev/null; then
+        echo "Error: User '$username' does not exist" >&2
+        return 1
+    fi
+    
+    # Check if Samba is enabled
+    if ! has_samba_enabled "$username"; then
+        echo "Samba sharing is not enabled for user '$username'"
+        return 0
+    fi
+    
+    echo "Disabling Samba sharing for user '$username'..."
+    
+    # Check if Samba is installed
+    if ! command -v smbpasswd &>/dev/null; then
+        echo "ERROR: Samba is not installed on this server."
+        return 1
+    fi
+    
+    # Remove Samba user account
+    smbpasswd -x "$username" 2>/dev/null || true
+    
+    # Remove Samba configuration file
+    local smb_conf="/etc/samba/smb.conf.d/$username.conf"
+    if [ -f "$smb_conf" ]; then
+        rm -f "$smb_conf"
+        echo "  Removed Samba configuration file"
+    fi
+    
+    # Restart Samba services
+    systemctl restart smbd nmbd
+    
+    echo "✓ Samba sharing disabled for user '$username'"
 }
 
 # List all backup users with their disk usage
@@ -1454,6 +1602,22 @@ case "$command" in
         ;;
     rebuild-all)
         rebuild_all
+        ;;
+    enable-samba)
+        if [ $# -eq 0 ]; then
+            echo "Error: Username is required for enable-samba command" >&2
+            usage
+            exit 1
+        fi
+        enable_samba "$1"
+        ;;
+    disable-samba)
+        if [ $# -eq 0 ]; then
+            echo "Error: Username is required for disable-samba command" >&2
+            usage
+            exit 1
+        fi
+        disable_samba "$1"
         ;;
     help|--help|-h)
         usage
