@@ -34,6 +34,25 @@ echo "Deleting user $USERNAME..."
 # Kill any processes owned by the user
 pkill -u "$USERNAME" 2>/dev/null || true
 
+# Remove Samba user if exists
+if command -v smbpasswd &>/dev/null; then
+    if pdbedit -L 2>/dev/null | grep -q "^$USERNAME:"; then
+        echo "Removing Samba user..."
+        smbpasswd -x "$USERNAME" 2>/dev/null || true
+    fi
+fi
+
+# Remove Samba configuration file
+if [ -f "/etc/samba/smb.conf.d/$USERNAME.conf" ]; then
+    echo "Removing Samba configuration..."
+    rm -f "/etc/samba/smb.conf.d/$USERNAME.conf"
+    # Restart Samba to apply changes
+    if systemctl is-active --quiet smbd; then
+        systemctl restart smbd 2>/dev/null || true
+        echo "  Restarted Samba service"
+    fi
+fi
+
 # Remove the user (without -r since home is owned by root)
 userdel "$USERNAME"
 
@@ -73,5 +92,8 @@ if [ -d "/home/$USERNAME" ]; then
     # Remove home directory
     rm -rf "/home/$USERNAME"
 fi
+
+# Remove any runtime files
+rm -f "/var/run/bakap/last_$USERNAME" 2>/dev/null || true
 
 echo "User $USERNAME and all their data have been deleted."
