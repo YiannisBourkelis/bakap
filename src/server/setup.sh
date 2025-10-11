@@ -254,6 +254,15 @@ if [ "$ENABLE_SAMBA" = "true" ]; then
    disable spoolss = yes
    show add printer wizard = no
    
+   # Disable usershares since we use global shares
+   usershare max shares = 0
+   usershare allow guests = no
+   usershare owner only = no
+   
+   # Suppress quota warnings (optional)
+   get quota command = 
+   set quota command =
+   
    # Logging
    log file = /var/log/samba/log.%m
    max log size = 1000
