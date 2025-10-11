@@ -224,11 +224,12 @@ build_samba_connection_cache() {
     local audit_log="/var/log/samba/audit.log"
     local use_journald=false
     
-    # If audit log doesn't exist, try journald instead
-    if [ ! -f "$audit_log" ] && command -v journalctl &>/dev/null; then
+    # Prefer journald if audit.log doesn't exist or is empty
+    if [ ! -s "$audit_log" ] && command -v journalctl &>/dev/null; then
+        # File doesn't exist or is empty, use journald
         use_journald=true
-    elif [ ! -f "$audit_log" ]; then
-        # No audit source available
+    elif [ ! -s "$audit_log" ]; then
+        # No audit source available (no file and no journalctl)
         return
     fi
     
