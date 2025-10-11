@@ -223,43 +223,61 @@ build_samba_connection_cache() {
     fi
     
     # Parse Samba logs for authentication events
-    # Look for "connect to service" messages which indicate successful connections
+    # With "log level = 1 auth:3", Samba logs authentication success messages
+    # We look for patterns indicating successful connections
+    
     for logfile in /var/log/samba/log.*; do
-        if [ -f "$logfile" ]; then
-            while IFS= read -r line; do
-                # Example log format: [2025/10/11 21:28:45.123456,  1] ../../source3/smbd/service.c:1114(make_connection_snum)
-                #   hostname (ipv4:192.168.1.100:55432) connect to service username-backup initially as user username (uid=1001, gid=1001) (pid 12345)
+        # Skip special system log files (keep only client logs)
+        if [[ "$logfile" =~ \.(smbd|nmbd|winbindd|rpcd_|samba-|wb-)$ ]]; then
+            continue
+        fi
+        
+        # Skip empty files
+        if [ ! -f "$logfile" ] || [ ! -s "$logfile" ]; then
+            continue
+        fi
+        
+        # Look for authentication success messages
+        while IFS= read -r line; do
+            local user=""
+            local timestamp=""
+            
+            # Pattern 1: "connect to service USERNAME-backup initially as user USERNAME"
+            if echo "$line" | grep -q "connect to service.*as user"; then
+                user=$(echo "$line" | sed -n 's/.*as user \([^ ]*\).*/\1/p' | head -1)
+                timestamp=$(echo "$line" | sed -n 's/^\[\([^,]*\).*/\1/p')
+            
+            # Pattern 2: "Successful authentication as USERNAME"  
+            elif echo "$line" | grep -q "Successful authentication as"; then
+                user=$(echo "$line" | sed -n 's/.*authentication as \([^ ]*\).*/\1/p' | head -1)
+                timestamp=$(echo "$line" | sed -n 's/^\[\([^,]*\).*/\1/p')
+            
+            # Pattern 3: "authenticated as user USERNAME"
+            elif echo "$line" | grep -q "authenticated as user"; then
+                user=$(echo "$line" | sed -n 's/.*authenticated as user \([^ ]*\).*/\1/p' | head -1)
+                timestamp=$(echo "$line" | sed -n 's/^\[\([^,]*\).*/\1/p')
+            fi
+            
+            # Process the extracted user and timestamp
+            if [ -n "$user" ] && [ -n "$timestamp" ]; then
+                # Convert Samba timestamp format (2025/10/11 21:28:45) to epoch
+                local epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo 0)
                 
-                # Extract username from "as user USERNAME"
-                if echo "$line" | grep -q "connect to service"; then
-                    local user=$(echo "$line" | grep -oP '(?<=as user )[^ ]+' | head -1)
-                    
-                    if [ -n "$user" ]; then
-                        # Extract timestamp from beginning of line [2025/10/11 21:28:45
-                        local timestamp=$(echo "$line" | grep -oP '^\[\K[^,]+')
-                        
-                        if [ -n "$timestamp" ]; then
-                            # Convert Samba timestamp format to epoch
-                            local epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo 0)
-                            
-                            if [ "$epoch" -gt 0 ]; then
-                                # Only store if this is newer than what we have (or first entry)
-                                if [ -z "${SAMBA_CONNECTION_CACHE[$user]}" ]; then
-                                    local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                                    SAMBA_CONNECTION_CACHE[$user]="$formatted|$epoch"
-                                else
-                                    local existing_epoch=$(echo "${SAMBA_CONNECTION_CACHE[$user]}" | cut -d'|' -f2)
-                                    if [ "$epoch" -gt "$existing_epoch" ]; then
-                                        local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                                        SAMBA_CONNECTION_CACHE[$user]="$formatted|$epoch"
-                                    fi
-                                fi
-                            fi
+                if [ "$epoch" -gt 0 ]; then
+                    # Only store if this is newer than what we have (or first entry)
+                    if [ -z "${SAMBA_CONNECTION_CACHE[$user]}" ]; then
+                        local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                        SAMBA_CONNECTION_CACHE[$user]="$formatted|$epoch"
+                    else
+                        local existing_epoch=$(echo "${SAMBA_CONNECTION_CACHE[$user]}" | cut -d'|' -f2)
+                        if [ "$epoch" -gt "$existing_epoch" ]; then
+                            local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                            SAMBA_CONNECTION_CACHE[$user]="$formatted|$epoch"
                         fi
                     fi
                 fi
-            done < <(grep "connect to service" "$logfile" 2>/dev/null)
-        fi
+            fi
+        done < <(grep -E "connect to service|authenticated as user|Successful authentication" "$logfile" 2>/dev/null)
     done
 }
 

@@ -266,7 +266,7 @@ if [ "$ENABLE_SAMBA" = "true" ]; then
    # Logging
    log file = /var/log/samba/log.%m
    max log size = 1000
-   log level = 1
+   log level = 1 auth:3
    
    # Performance
    socket options = TCP_NODELAY IPTOS_LOWDELAY SO_KEEPALIVE
