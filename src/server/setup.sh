@@ -425,6 +425,9 @@ while read path event; do
     # This process will keep checking for inactivity and create snapshot when ready
     # Only ONE process per user, regardless of how many files are uploaded
     (
+        # Inherit LOG variable in subshell
+        LOG="$LOG"
+        
         # Mark that we're monitoring this user
         monitor_pid=\$\$
         echo "\$monitor_pid" > "\$processing_file" 2>/dev/null || true
@@ -444,8 +447,8 @@ while read path event; do
             fi
             
             # Safety: if we've been running for more than SNAPSHOT_INTERVAL, force snapshot
-            if [ "\$idle_time" -ge "\$SNAPSHOT_INTERVAL" ]; then
-                echo "\$(date '+%F %T') User \$user: forcing snapshot after \$SNAPSHOT_INTERVAL seconds" >> "\$LOG"
+            if [ "$idle_time" -ge "$SNAPSHOT_INTERVAL" ]; then
+                echo "$(date '+%F %T') User $user: forcing snapshot after $SNAPSHOT_INTERVAL seconds" >> "$LOG"
                 break
             fi
         done
@@ -460,13 +463,13 @@ while read path event; do
         fi
         
         # Check if uploads directory has files
-        if [ ! -d "/home/\$user/uploads" ]; then
-            echo "\$(date '+%F %T') Skipping snapshot for \$user: uploads subvolume does not exist" >> "\$LOG"
+        if [ ! -d "/home/$user/uploads" ]; then
+            echo "$(date '+%F %T') Skipping snapshot for $user: uploads subvolume does not exist" >> "$LOG"
             exit 0
         fi
         
-        if [ -z "\$(ls -A "/home/\$user/uploads" 2>/dev/null)" ]; then
-            echo "\$(date '+%F %T') Skipping snapshot for \$user: uploads directory is empty" >> "\$LOG"
+        if [ -z "$(ls -A "/home/$user/uploads" 2>/dev/null)" ]; then
+            echo "$(date '+%F %T') Skipping snapshot for $user: uploads directory is empty" >> "$LOG"
             exit 0
         fi
         
@@ -481,7 +484,7 @@ while read path event; do
         # 2. Delete any files that are currently open for writing
         # 3. Make snapshot read-only for ransomware protection
         
-        if btrfs subvolume snapshot "/home/\$user/uploads" "\$snapshot_path" >> "\$LOG" 2>&1; then
+        if btrfs subvolume snapshot "/home/$user/uploads" "$snapshot_path" >> "$LOG" 2>&1; then
             # Snapshot created, now exclude in-progress files
             excluded_count=0
             
@@ -489,7 +492,7 @@ while read path event; do
             open_files_list=\$(lsof +D "/home/\$user/uploads" 2>/dev/null | grep -E "\\s+[0-9]+[uw]" | awk '{print \$NF}' || true)
             
             if [ -n "\$open_files_list" ]; then
-                echo "\$(date '+%F %T') Excluding in-progress files from snapshot:" >> "\$LOG"
+                echo "$(date '+%F %T') Excluding in-progress files from snapshot:" >> "$LOG"
                 while IFS= read -r open_file; do
                     if [ -n "\$open_file" ] && [ -f "\$open_file" ]; then
                         # Extract relative path from /home/user/uploads/...
@@ -499,28 +502,28 @@ while read path event; do
                         if [ -f "\$snapshot_file_path" ]; then
                             rm -f "\$snapshot_file_path"
                             excluded_count=\$((excluded_count + 1))
-                            file_size=\$(du -h "\$open_file" 2>/dev/null | awk '{print \$1}' || echo "?")
-                            echo "\$(date '+%F %T')   Excluded: \$rel_path (\${file_size}, still uploading)" >> "\$LOG"
+                            file_size=$(du -h "$open_file" 2>/dev/null | awk '{print $1}' || echo "?")
+                            echo "$(date '+%F %T')   Excluded: $rel_path (${file_size}, still uploading)" >> "$LOG"
                         fi
                     fi
                 done <<< "\$open_files_list"
             fi
             
             # Now make the snapshot read-only (ransomware protection)
-            btrfs property set -ts "\$snapshot_path" ro true >> "\$LOG" 2>&1 || true
+            btrfs property set -ts "$snapshot_path" ro true >> "$LOG" 2>&1 || true
             
             # Set ownership and permissions
             chown root:backupusers "\$snapshot_path" 2>/dev/null || true
             chmod 755 "\$snapshot_path" 2>/dev/null || true
             
             # Log snapshot details
-            if [ "\$excluded_count" -gt 0 ]; then
-                echo "\$(date '+%F %T') Btrfs snapshot created for \$user at \$timestamp (\$snapshot_reason, excluded \$excluded_count in-progress files)" >> "\$LOG"
+            if [ "$excluded_count" -gt 0 ]; then
+                echo "$(date '+%F %T') Btrfs snapshot created for $user at $timestamp ($snapshot_reason, excluded $excluded_count in-progress files)" >> "$LOG"
             else
-                echo "\$(date '+%F %T') Btrfs snapshot created for \$user at \$timestamp (\$snapshot_reason)" >> "\$LOG"
+                echo "$(date '+%F %T') Btrfs snapshot created for $user at $timestamp ($snapshot_reason)" >> "$LOG"
             fi
         else
-            echo "\$(date '+%F %T') ERROR: Failed to create Btrfs snapshot for \$user" >> "\$LOG"
+            echo "$(date '+%F %T') ERROR: Failed to create Btrfs snapshot for $user" >> "$LOG"
         fi
         
         # Record last snapshot time
