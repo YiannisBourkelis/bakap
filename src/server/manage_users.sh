@@ -213,6 +213,68 @@ get_last_connection() {
     fi
 }
 
+# Build Samba connection cache
+build_samba_connection_cache() {
+    declare -gA SAMBA_CONNECTION_CACHE
+    
+    # Check if Samba log directory exists
+    if [ ! -d /var/log/samba ]; then
+        return
+    fi
+    
+    # Parse Samba logs for authentication events
+    # Look for "connect to service" messages which indicate successful connections
+    for logfile in /var/log/samba/log.*; do
+        if [ -f "$logfile" ]; then
+            while IFS= read -r line; do
+                # Example log format: [2025/10/11 21:28:45.123456,  1] ../../source3/smbd/service.c:1114(make_connection_snum)
+                #   hostname (ipv4:192.168.1.100:55432) connect to service username-backup initially as user username (uid=1001, gid=1001) (pid 12345)
+                
+                # Extract username from "as user USERNAME"
+                if echo "$line" | grep -q "connect to service"; then
+                    local user=$(echo "$line" | grep -oP '(?<=as user )[^ ]+' | head -1)
+                    
+                    if [ -n "$user" ]; then
+                        # Extract timestamp from beginning of line [2025/10/11 21:28:45
+                        local timestamp=$(echo "$line" | grep -oP '^\[\K[^,]+')
+                        
+                        if [ -n "$timestamp" ]; then
+                            # Convert Samba timestamp format to epoch
+                            local epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo 0)
+                            
+                            if [ "$epoch" -gt 0 ]; then
+                                # Only store if this is newer than what we have (or first entry)
+                                if [ -z "${SAMBA_CONNECTION_CACHE[$user]}" ]; then
+                                    local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                                    SAMBA_CONNECTION_CACHE[$user]="$formatted|$epoch"
+                                else
+                                    local existing_epoch=$(echo "${SAMBA_CONNECTION_CACHE[$user]}" | cut -d'|' -f2)
+                                    if [ "$epoch" -gt "$existing_epoch" ]; then
+                                        local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                                        SAMBA_CONNECTION_CACHE[$user]="$formatted|$epoch"
+                                    fi
+                                fi
+                            fi
+                        fi
+                    fi
+                fi
+            done < <(grep "connect to service" "$logfile" 2>/dev/null)
+        fi
+    done
+}
+
+# Get last Samba connection time for a user from cache
+get_last_samba_connection() {
+    local user="$1"
+    
+    # Return from cache if available
+    if [ -n "${SAMBA_CONNECTION_CACHE[$user]}" ]; then
+        echo "${SAMBA_CONNECTION_CACHE[$user]}"
+    else
+        echo "Never|0"
+    fi
+}
+
 # Check if Samba is enabled for a user
 has_samba_enabled() {
     local username="$1"
@@ -366,19 +428,37 @@ disable_samba() {
 
 # List all backup users with their disk usage
 list_users() {
-    echo "Backup Users:"
-    echo "=================================================================================================================================="
-    printf "%-16s %8s %8s %6s %8s %19s %19s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Protocol" "Last Snapshot" "Last Connect" "Status"
-    echo "----------------------------------------------------------------------------------------------------------------------------------"
-    
     local users=$(get_backup_users)
     if [ -z "$users" ]; then
         echo "No backup users found."
         return
     fi
     
-    # Build connection cache once for all users (performance optimization)
+    # Check if any user has Samba enabled (determines if we show SMB column)
+    local any_samba=false
+    while IFS= read -r user; do
+        if [ -n "$user" ] && has_samba_enabled "$user"; then
+            any_samba=true
+            break
+        fi
+    done <<< "$users"
+    
+    # Build connection caches once for all users (performance optimization)
     build_connection_cache
+    if [ "$any_samba" = true ]; then
+        build_samba_connection_cache
+    fi
+    
+    echo "Backup Users:"
+    if [ "$any_samba" = true ]; then
+        echo "=============================================================================================================================================="
+        printf "%-16s %8s %8s %6s %8s %19s %16s %16s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Protocol" "Last Snapshot" "Last SFTP" "Last SMB" "Status"
+        echo "----------------------------------------------------------------------------------------------------------------------------------------------"
+    else
+        echo "=================================================================================================================================="
+        printf "%-16s %8s %8s %6s %8s %19s %19s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Protocol" "Last Snapshot" "Last SFTP" "Status"
+        echo "----------------------------------------------------------------------------------------------------------------------------------"
+    fi
     
     local total_actual="0.00"
     local total_apparent="0.00"
@@ -511,7 +591,16 @@ list_users() {
         
         # Format dates for display (keep full date/time)
         local display_backup="$last_date"
-        local display_conn="$last_conn"
+        local display_sftp="$last_conn"
+        
+        # Get Samba connection info if enabled
+        local display_smb="N/A"
+        if [ "$any_samba" = true ]; then
+            if has_samba_enabled "$user"; then
+                local smb_info=$(get_last_samba_connection "$user")
+                display_smb=$(echo "$smb_info" | cut -d'|' -f1)
+            fi
+        fi
         
         # Determine protocol support
         local protocol="SFTP"
@@ -519,11 +608,19 @@ list_users() {
             protocol="SFTP+SMB"
         fi
         
-        # Print with color
-        if [ -n "$status_color" ] && [ "$status" != "✓"* ]; then
-            printf "%-16s %8s %8s %6s %8s %19s %19s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_conn" "$status"
+        # Print with color - adjust format based on whether Samba column is shown
+        if [ "$any_samba" = true ]; then
+            if [ -n "$status_color" ] && [ "$status" != "✓"* ]; then
+                printf "%-16s %8s %8s %6s %8s %19s %16s %16s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$display_smb" "$status"
+            else
+                printf "%-16s %8s %8s %6s %8s %19s %16s %16s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$display_smb" "$status"
+            fi
         else
-            printf "%-16s %8s %8s %6s %8s %19s %19s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_conn" "$status"
+            if [ -n "$status_color" ] && [ "$status" != "✓"* ]; then
+                printf "%-16s %8s %8s %6s %8s %19s %19s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$status"
+            else
+                printf "%-16s %8s %8s %6s %8s %19s %19s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$status"
+            fi
         fi
         
         # Sum up totals using bc for decimal arithmetic
@@ -532,15 +629,25 @@ list_users() {
         total_users=$((total_users + 1))
     done <<< "$users"
     
-    echo "----------------------------------------------------------------------------------------------------------------------------------"
-    printf "%-16s %8s %8s %6s %8s\n" "Total: $total_users" "$total_actual" "$total_apparent" "" ""
+    # Print footer with appropriate line length
+    if [ "$any_samba" = true ]; then
+        echo "----------------------------------------------------------------------------------------------------------------------------------------------"
+        printf "%-16s %8s %8s %6s %8s\n" "Total: $total_users" "$total_actual" "$total_apparent" "" ""
+    else
+        echo "----------------------------------------------------------------------------------------------------------------------------------"
+        printf "%-16s %8s %8s %6s %8s\n" "Total: $total_users" "$total_actual" "$total_apparent" "" ""
+    fi
+    
     echo ""
     echo "Note: Size(MB) shows physical disk usage with Btrfs deduplication"
     echo "      Apparent shows logical size (sum of all files as if independent copies)"
     echo "      The difference shows space saved by Btrfs CoW snapshots"
     echo "      Protocol shows available access methods (SFTP or SFTP+SMB)"
     echo "      Last Snapshot shows when the most recent snapshot was created"
-    echo "      Last Connect shows most recent SSH/SFTP authentication"
+    echo "      Last SFTP shows most recent SSH/SFTP authentication"
+    if [ "$any_samba" = true ]; then
+        echo "      Last SMB shows most recent Samba/SMB connection (N/A if Samba not enabled for user)"
+    fi
     echo "      Status meanings:"
     echo "        ✓ OK           = Recent snapshot or connection with no changes (good!)"
     echo "        ✓ No changes   = Backup job running but no file changes detected"
