@@ -315,7 +315,7 @@ enabled = true
 port = 445
 filter = bakap-samba
 backend = systemd
-journalmatch = _SYSTEMD_UNIT=smbd.service
+journalmatch = _TRANSPORT=syslog
 maxretry = 5
 bantime = 3600
 findtime = 600
