@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # create_user.sh - Create a backup user with secure password and versioning setup
-# Usage: ./create_user.sh <username> [-p|--password <password>]
+# Usage: ./create_user.sh <username> [-p|--password <password>] [-s|--samba]
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
@@ -41,35 +41,94 @@ validate_password() {
     return 0
 }
 
+# Function to setup Samba share with strict security
+setup_samba_share() {
+    local username="$1"
+    local password="$2"
+    
+    echo "Setting up Samba share for $username..."
+    
+    # Check if Samba is installed
+    if ! command -v smbpasswd &>/dev/null; then
+        echo "ERROR: Samba is not installed on this server."
+        echo "To enable Samba support, run setup.sh with the --samba option:"
+        echo "  ./setup.sh --samba"
+        echo "Then re-run this command to create the user with Samba support."
+        return 1
+    fi
+    
+    # Enable Samba user with the same password
+    echo -e "$password\n$password" | smbpasswd -a "$username" -s
+    
+    # Create Samba configuration for this user with strict security
+    local smb_conf="/etc/samba/smb.conf.d/$username.conf"
+    mkdir -p /etc/samba/smb.conf.d
+    
+    cat > "$smb_conf" << EOF
+[$username-backup]
+   path = /home/$username/uploads
+   browseable = no
+   writable = yes
+   guest ok = no
+   valid users = $username
+   create mask = 0644
+   directory mask = 0755
+   force user = $username
+   force group = backupusers
+   # Strict security settings
+   read only = no
+   public = no
+   printable = no
+   store dos attributes = no
+   map archive = no
+   map hidden = no
+   map system = no
+   map readonly = no
+EOF
+    
+    # Restart Samba services
+    systemctl restart smbd nmbd
+    
+    echo "  ✓ Samba share created: //$HOSTNAME/$username-backup"
+    echo "  ✓ Access credentials: $username / [same password as SFTP]"
+}
+
 # Parse command line arguments
 if [ $# -lt 1 ]; then
-    echo "Usage: $0 <username> [-p|--password <password>]"
+    echo "Usage: $0 <username> [-p|--password <password>] [-s|--samba]"
     echo ""
     echo "Options:"
     echo "  -p, --password  Manually specify password (must be 30+ chars with lowercase, uppercase, and numbers)"
+    echo "  -s, --samba     Enable Samba (SMB) sharing for uploads directory"
     echo ""
     echo "If no password is provided, a secure 64-character random password will be generated."
+    echo "Samba sharing allows other applications to use the uploads directory as a network share."
     exit 1
 fi
 
 USERNAME=$1
 PASSWORD=""
+ENABLE_SAMBA=false
 
-# Parse optional password parameter
+# Parse optional parameters
 shift
 while [ $# -gt 0 ]; do
     case "$1" in
         -p|--password)
-            if [ -z "$2" ]; then
+            if [ -z "${2:-}" ]; then
                 echo "ERROR: --password requires a value"
                 exit 1
             fi
             PASSWORD="$2"
             shift 2
             ;;
+        -s|--samba)
+            ENABLE_SAMBA=true
+            shift
+            ;;
         *)
             echo "ERROR: Unknown parameter: $1"
-            echo "Usage: $0 <username> [-p|--password <password>]"
+            echo "Usage: $0 <username> [-p|--password <password>] [-s|--samba]"
             exit 1
             ;;
     esac
@@ -145,7 +204,19 @@ chmod 700 "/home/$USERNAME/uploads"
 chown root:backupusers "/home/$USERNAME/versions"
 chmod 755 "/home/$USERNAME/versions"
 
-echo "User $USERNAME created successfully."
+# Setup Samba share if requested
+if [ "$ENABLE_SAMBA" = "true" ]; then
+    if ! setup_samba_share "$USERNAME" "$PASSWORD"; then
+        echo "Failed to setup Samba share for user $USERNAME."
+        echo "Cleaning up..."
+        userdel -r "$USERNAME" 2>/dev/null
+        exit 1
+    fi
+    echo "User $USERNAME created successfully with Samba support."
+else
+    echo "User $USERNAME created successfully."
+fi
+
 echo "Upload subvolume: /home/$USERNAME/uploads (Btrfs subvolume)"
 echo "Versions directory: /home/$USERNAME/versions (read-only Btrfs snapshots)"
 echo "Btrfs snapshots will be created automatically on file uploads via inotify monitoring."

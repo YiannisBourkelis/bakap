@@ -14,7 +14,40 @@
 
 set -e
 
+# Parse command line arguments
+ENABLE_SAMBA=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --samba)
+            ENABLE_SAMBA=true
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 [options]"
+            echo ""
+            echo "Options:"
+            echo "  --samba    Enable Samba (SMB) support for wbadmin compatibility"
+            echo "  --help     Show this help message"
+            echo ""
+            echo "By default, only SFTP access is enabled for security."
+            echo "Use --samba to also enable Samba sharing with strict security settings."
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
 echo "Starting bakap server setup..."
+if [ "$ENABLE_SAMBA" = "true" ]; then
+    echo "Samba support: ENABLED"
+else
+    echo "Samba support: DISABLED (use --samba to enable)"
+fi
 echo ""
 
 # Check Btrfs filesystem requirement
@@ -54,7 +87,12 @@ apt update && apt upgrade -y
 
 # Install required packages (removed rsync, added btrfs-progs)
 echo "Installing required packages..."
-apt install -y openssh-server pwgen cron inotify-tools btrfs-progs fail2ban bc coreutils
+PACKAGES="openssh-server pwgen cron inotify-tools btrfs-progs fail2ban bc coreutils"
+if [ "$ENABLE_SAMBA" = "true" ]; then
+    PACKAGES="$PACKAGES samba samba-common-bin"
+    echo "  - Including Samba packages for SMB support"
+fi
+apt install -y $PACKAGES
 
 # Create backup users group
 echo "Creating backupusers group..."
@@ -178,6 +216,89 @@ echo "    * 5 failed login attempts = 1 hour ban"
 echo "    * 10 connection attempts in 60s = 10 minute ban (DOS protection)"
 echo "    * Applies to both SSH and SFTP connections"
 
+# Configure Samba if enabled
+if [ "$ENABLE_SAMBA" = "true" ]; then
+    echo "Configuring Samba..."
+    
+    # Create Samba configuration directory for user-specific configs
+    mkdir -p /etc/samba/smb.conf.d
+    
+    # Backup original smb.conf if it exists
+    if [ -f /etc/samba/smb.conf ] && [ ! -f /etc/samba/smb.conf.bak ]; then
+        cp /etc/samba/smb.conf /etc/samba/smb.conf.bak
+        echo "  - Backed up original smb.conf"
+    fi
+    
+    # Create main Samba configuration with security settings
+    cat > /etc/samba/smb.conf <<SMB
+# Bakap Samba configuration - STRICT SECURITY SETTINGS
+[global]
+   workgroup = WORKGROUP
+   server string = Bakap Backup Server
+   security = user
+   map to guest = never
+   
+   # Strict protocol requirements
+   server min protocol = SMB3
+   client min protocol = SMB3
+   server max protocol = SMB3
+   client max protocol = SMB3
+   
+   # Encryption required
+   smb encrypt = required
+   
+   # Disable insecure features
+   load printers = no
+   printing = bsd
+   printcap name = /dev/null
+   disable spoolss = yes
+   show add printer wizard = no
+   
+   # Logging
+   log file = /var/log/samba/log.%m
+   max log size = 1000
+   log level = 1
+   
+   # Performance
+   socket options = TCP_NODELAY IPTOS_LOWDELAY SO_KEEPALIVE
+   read raw = yes
+   write raw = yes
+   oplocks = yes
+   max xmit = 65535
+   dead time = 15
+   
+   # Include user-specific configurations
+   include = /etc/samba/smb.conf.d/%U.conf
+SMB
+    
+    # Configure fail2ban for Samba protection
+    if [ ! -f /etc/fail2ban/jail.d/bakap-samba.conf ]; then
+        cat > /etc/fail2ban/jail.d/bakap-samba.conf <<F2B
+# Bakap fail2ban configuration for Samba protection
+[bakap-samba]
+enabled = true
+port = 445
+filter = samba
+logpath = /var/log/samba/log.*
+maxretry = 3
+bantime = 3600
+findtime = 600
+F2B
+        echo "  - Created fail2ban Samba jail configuration"
+    else
+        echo "  - fail2ban Samba jail configuration already exists"
+    fi
+    
+    # Enable and start Samba services
+    echo "Starting Samba services..."
+    systemctl enable smbd nmbd
+    systemctl restart smbd nmbd
+    echo "  - Samba is now running with strict security:"
+    echo "    * SMB3 protocol only (no older insecure versions)"
+    echo "    * Encryption required for all connections"
+    echo "    * fail2ban protection (3 failed attempts = 1 hour ban)"
+    echo "    * User-specific shares with restricted permissions"
+fi
 
 # Create base directories
 echo "Creating base directories..."

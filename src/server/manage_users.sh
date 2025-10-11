@@ -54,6 +54,7 @@ Notes:
     - Rebuild command deletes ALL existing snapshots and creates fresh snapshot from uploads
     - Rebuild skips users with files open in uploads directory (warns and continues)
     - Rebuild verifies file integrity between uploads and created snapshot
+    - Protocol column shows available access methods (SFTP or SFTP+SMB)
 EOF
 }
 
@@ -218,12 +219,19 @@ get_last_connection() {
     fi
 }
 
+# Check if Samba is enabled for a user
+has_samba_enabled() {
+    local username="$1"
+    # Check if Samba config file exists for this user
+    [ -f "/etc/samba/smb.conf.d/${username}.conf" ]
+}
+
 # List all backup users with their disk usage
 list_users() {
     echo "Backup Users:"
-    echo "========================================================================================================"
-    printf "%-16s %8s %8s %6s %19s %19s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Last Snapshot" "Last Connect" "Status"
-    echo "--------------------------------------------------------------------------------------------------------"
+    echo "=================================================================================================================================="
+    printf "%-16s %8s %8s %6s %8s %19s %19s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Protocol" "Last Snapshot" "Last Connect" "Status"
+    echo "----------------------------------------------------------------------------------------------------------------------------------"
     
     local users=$(get_backup_users)
     if [ -z "$users" ]; then
@@ -367,11 +375,17 @@ list_users() {
         local display_backup="$last_date"
         local display_conn="$last_conn"
         
+        # Determine protocol support
+        local protocol="SFTP"
+        if has_samba_enabled "$user"; then
+            protocol="SFTP+SMB"
+        fi
+        
         # Print with color
         if [ -n "$status_color" ] && [ "$status" != "✓"* ]; then
-            printf "%-16s %8s %8s %6s %19s %19s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$display_backup" "$display_conn" "$status"
+            printf "%-16s %8s %8s %6s %8s %19s %19s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_conn" "$status"
         else
-            printf "%-16s %8s %8s %6s %19s %19s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$display_backup" "$display_conn" "$status"
+            printf "%-16s %8s %8s %6s %8s %19s %19s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_conn" "$status"
         fi
         
         # Sum up totals using bc for decimal arithmetic
@@ -380,12 +394,13 @@ list_users() {
         total_users=$((total_users + 1))
     done <<< "$users"
     
-    echo "--------------------------------------------------------------------------------------------------------"
-    printf "%-16s %8s %8s %6s\n" "Total: $total_users" "$total_actual" "$total_apparent" ""
+    echo "----------------------------------------------------------------------------------------------------------------------------------"
+    printf "%-16s %8s %8s %6s %8s\n" "Total: $total_users" "$total_actual" "$total_apparent" "" ""
     echo ""
     echo "Note: Size(MB) shows physical disk usage with Btrfs deduplication"
     echo "      Apparent shows logical size (sum of all files as if independent copies)"
     echo "      The difference shows space saved by Btrfs CoW snapshots"
+    echo "      Protocol shows available access methods (SFTP or SFTP+SMB)"
     echo "      Last Snapshot shows when the most recent snapshot was created"
     echo "      Last Connect shows most recent SSH/SFTP authentication"
     echo "      Status meanings:"
