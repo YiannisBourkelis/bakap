@@ -304,6 +304,7 @@ FILTER
     fi
     
     # Configure fail2ban jail
+    NEED_FAIL2BAN_RESTART=false
     if [ ! -f /etc/fail2ban/jail.d/bakap-samba.conf ]; then
         cat > /etc/fail2ban/jail.d/bakap-samba.conf <<F2B
 # Bakap fail2ban configuration for Samba protection
@@ -319,8 +320,16 @@ bantime = 3600
 findtime = 600
 F2B
         echo "  - Created fail2ban Samba jail configuration"
+        NEED_FAIL2BAN_RESTART=true
     else
         echo "  - fail2ban Samba jail configuration already exists"
+    fi
+    
+    # Restart fail2ban if we added new configuration
+    if [ "$NEED_FAIL2BAN_RESTART" = "true" ]; then
+        echo "Reloading fail2ban with Samba protection..."
+        systemctl restart fail2ban
+        echo "  - fail2ban Samba jail is now active"
     fi
     
     # Configure rsyslog to capture Samba audit logs
@@ -346,7 +355,8 @@ RSYSLOG
     echo "  - Samba is now running with strict security:"
     echo "    * SMB3 protocol only (no older insecure versions)"
     echo "    * Encryption required for all connections"
-    echo "    * fail2ban protection (3 failed attempts = 1 hour ban)"
+    echo "    * fail2ban protection (5 failed attempts = 1 hour ban)"
+    echo "    * VFS audit logging for connection tracking and security"
     echo "    * User-specific shares with restricted permissions"
     echo "    * VFS audit logging enabled for connection tracking"
 fi
