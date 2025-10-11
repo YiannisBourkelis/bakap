@@ -1206,12 +1206,58 @@ delete_user() {
     
     echo "Deleting user '$username'..."
     
-    # Delete user
+    # Kill any processes owned by the user
+    pkill -u "$username" 2>/dev/null || true
+    
+    # Delete user account
     userdel "$username" 2>/dev/null || true
     
-    # Remove home directory and all files
+    # Remove Samba user if exists
+    if command -v smbpasswd &>/dev/null; then
+        smbpasswd -x "$username" 2>/dev/null || true
+    fi
+    
+    # Remove Samba configuration
+    if [ -f "/etc/samba/smb.conf.d/$username.conf" ]; then
+        rm -f "/etc/samba/smb.conf.d/$username.conf"
+        # Restart Samba to apply changes
+        systemctl restart smbd 2>/dev/null || true
+    fi
+    
+    # Remove home directory and all Btrfs subvolumes
     if [ -d "/home/$username" ]; then
-        echo "Removing /home/$username..."
+        echo "Removing Btrfs subvolumes and data..."
+        
+        # Delete uploads subvolume
+        if [ -d "/home/$username/uploads" ]; then
+            if btrfs subvolume show "/home/$username/uploads" &>/dev/null; then
+                echo "  Deleting uploads subvolume..."
+                btrfs subvolume delete "/home/$username/uploads" >/dev/null 2>&1 || rm -rf "/home/$username/uploads"
+            else
+                rm -rf "/home/$username/uploads"
+            fi
+        fi
+        
+        # Delete all snapshot subvolumes in versions/
+        if [ -d "/home/$username/versions" ]; then
+            echo "  Deleting snapshot subvolumes..."
+            local count=0
+            for snapshot in /home/$username/versions/*; do
+                if [ -d "$snapshot" ]; then
+                    if btrfs subvolume show "$snapshot" &>/dev/null; then
+                        # Make snapshot writable before deletion
+                        btrfs property set -ts "$snapshot" ro false 2>/dev/null || true
+                        btrfs subvolume delete "$snapshot" >/dev/null 2>&1 && count=$((count + 1))
+                    else
+                        rm -rf "$snapshot" && count=$((count + 1))
+                    fi
+                fi
+            done
+            [ $count -gt 0 ] && echo "    Deleted $count snapshots"
+            rmdir "/home/$username/versions" 2>/dev/null || rm -rf "/home/$username/versions"
+        fi
+        
+        # Remove home directory
         rm -rf "/home/$username"
     fi
     
@@ -1280,6 +1326,8 @@ cleanup_user() {
         if [ -n "$snapshot" ] && [ -d "$snapshot" ] && [ "$snapshot" != "$latest_snapshot" ]; then
             # Check if it's a Btrfs subvolume
             if btrfs subvolume show "$snapshot" &>/dev/null; then
+                # Make snapshot writable before deletion
+                btrfs property set -ts "$snapshot" ro false 2>/dev/null || true
                 if btrfs subvolume delete "$snapshot" &>/dev/null; then
                     removed=$((removed + 1))
                 fi

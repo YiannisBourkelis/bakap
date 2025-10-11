@@ -713,6 +713,8 @@ cleanup_by_age() {
     while IFS= read -r -d '' snapshot; do
         # Check if it's a Btrfs subvolume before deleting
         if btrfs subvolume show "$snapshot" &>/dev/null; then
+            # Make snapshot writable before deletion
+            btrfs property set -ts "$snapshot" ro false 2>/dev/null || true
             btrfs subvolume delete "$snapshot" &>/dev/null && count=$((count + 1))
         else
             # Fallback for non-subvolume directories (shouldn't happen in Btrfs setup)
@@ -800,6 +802,8 @@ cleanup_advanced() {
             if [ -z "${keep_snapshots[$snapshot]}" ]; then
                 # Check if it's a Btrfs subvolume before deleting
                 if btrfs subvolume show "$snapshot" &>/dev/null; then
+                    # Make snapshot writable before deletion
+                    btrfs property set -ts "$snapshot" ro false 2>/dev/null || true
                     btrfs subvolume delete "$snapshot" &>/dev/null && removed=$((removed + 1))
                 else
                     # Fallback for non-subvolume directories (shouldn't happen)

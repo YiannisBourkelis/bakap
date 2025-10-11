@@ -58,6 +58,8 @@ if [ -d "/home/$USERNAME" ]; then
         for snapshot in /home/$USERNAME/versions/*; do
             if [ -d "$snapshot" ]; then
                 if btrfs subvolume show "$snapshot" &>/dev/null; then
+                    # Make snapshot writable before deletion
+                    btrfs property set -ts "$snapshot" ro false 2>/dev/null || true
                     btrfs subvolume delete "$snapshot" >/dev/null 2>&1 && count=$((count + 1))
                 else
                     rm -rf "$snapshot" && count=$((count + 1))
