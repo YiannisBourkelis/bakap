@@ -218,13 +218,17 @@ build_samba_connection_cache() {
     declare -gA SAMBA_CONNECTION_CACHE
     
     # Check Samba VFS audit log for SMB file operations
-    # The audit log format is: timestamp hostname username|ip|machine operation
+    # The audit log format is: timestamp hostname username|ip|machine|operation
     # Example: Oct 12 14:23:45 debmain sambatest|192.168.1.100|myrsini-pc|connect
     
     local audit_log="/var/log/samba/audit.log"
+    local use_journald=false
     
-    if [ ! -f "$audit_log" ]; then
-        # Audit log doesn't exist yet, return
+    # If audit log doesn't exist, try journald instead
+    if [ ! -f "$audit_log" ] && command -v journalctl &>/dev/null; then
+        use_journald=true
+    elif [ ! -f "$audit_log" ]; then
+        # No audit source available
         return
     fi
     
@@ -239,13 +243,33 @@ build_samba_connection_cache() {
             continue
         fi
         
-        # Search for this user's SMB operations in audit log
-        # Look for connect, write, pwrite operations (indicates active usage)
-        local latest_line=$(grep "^[A-Za-z].*$user|" "$audit_log" 2>/dev/null | grep -E "connect|write|pwrite|close" | tail -1)
+        local latest_line=""
+        
+        if [ "$use_journald" = true ]; then
+            # Parse from journald (smbd logs with audit prefix)
+            # Format: smbd_audit: username|ip|machine|operation
+            latest_line=$(journalctl --since "90 days ago" -u smbd -u nmbd --no-pager 2>/dev/null | \
+                grep "smbd_audit.*$user|" | \
+                grep -E "connect|write|pwrite|close" | \
+                tail -1)
+        else
+            # Parse from audit.log file
+            # Look for connect, write, pwrite operations (indicates active usage)
+            latest_line=$(grep "^[A-Za-z].*$user|" "$audit_log" 2>/dev/null | \
+                grep -E "connect|write|pwrite|close" | \
+                tail -1)
+        fi
         
         if [ -n "$latest_line" ]; then
-            # Extract timestamp (first 3 fields: Oct 12 14:23:45)
-            local timestamp=$(echo "$latest_line" | awk '{print $1, $2, $3}')
+            # Extract timestamp (first 3 fields for syslog, or journald format)
+            local timestamp=""
+            if [ "$use_journald" = true ]; then
+                # Journald format: "Oct 12 14:23:45 hostname ..."
+                timestamp=$(echo "$latest_line" | awk '{print $1, $2, $3}')
+            else
+                # Syslog format: "Oct 12 14:23:45 ..."
+                timestamp=$(echo "$latest_line" | awk '{print $1, $2, $3}')
+            fi
             
             if [ -n "$timestamp" ]; then
                 # Add current year if not present

@@ -89,7 +89,7 @@ setup_samba_share() {
    full_audit:prefix = %u|%I|%m
    full_audit:success = connect disconnect open close write pwrite mkdir rmdir rename unlink
    full_audit:failure = none
-   full_audit:facility = local5
+   full_audit:facility = local1
    full_audit:priority = notice
 EOF
     

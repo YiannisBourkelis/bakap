@@ -332,21 +332,40 @@ F2B
         echo "  - fail2ban Samba jail is now active"
     fi
     
-    # Configure rsyslog to capture Samba audit logs
-    if [ ! -f /etc/rsyslog.d/30-bakap-samba-audit.conf ]; then
-        cat > /etc/rsyslog.d/30-bakap-samba-audit.conf <<'RSYSLOG'
+    # Configure syslog to capture Samba audit logs
+    # Check if rsyslog or syslog-ng is available
+    if systemctl list-unit-files | grep -q "^rsyslog.service"; then
+        if [ ! -f /etc/rsyslog.d/30-bakap-samba-audit.conf ]; then
+            cat > /etc/rsyslog.d/30-bakap-samba-audit.conf <<'RSYSLOG'
 # Bakap Samba VFS audit logging
 # Captures SMB file operations to separate log file
-local5.*    /var/log/samba/audit.log
+local1.*    /var/log/samba/audit.log
 RSYSLOG
-        systemctl restart rsyslog
-        echo "  - Configured rsyslog for Samba audit logging"
+            systemctl restart rsyslog
+            echo "  - Configured rsyslog for Samba audit logging"
+        fi
+    elif systemctl list-unit-files | grep -q "^syslog.service"; then
+        if [ ! -f /etc/syslog.d/30-bakap-samba-audit.conf ]; then
+            cat > /etc/syslog.d/30-bakap-samba-audit.conf <<'SYSLOG'
+# Bakap Samba VFS audit logging
+local1.*    /var/log/samba/audit.log
+SYSLOG
+            systemctl restart syslog
+            echo "  - Configured syslog for Samba audit logging"
+        fi
+    else
+        # No syslog daemon, configure journald forwarding instead
+        echo "  - No syslog daemon found, using journald for audit logging"
+        echo "  - View audit logs with: journalctl SYSLOG_IDENTIFIER=smbd_audit"
+        echo "  - Note: manage_users.sh will parse journald for SMB connections"
     fi
     
-    # Ensure audit log file exists with proper permissions
-    touch /var/log/samba/audit.log
-    chmod 640 /var/log/samba/audit.log
-    chown root:adm /var/log/samba/audit.log
+    # Ensure audit log file exists with proper permissions (if syslog is available)
+    if systemctl list-unit-files | grep -qE "^(rsyslog|syslog).service"; then
+        touch /var/log/samba/audit.log
+        chmod 640 /var/log/samba/audit.log
+        chown root:adm /var/log/samba/audit.log 2>/dev/null || chown root:root /var/log/samba/audit.log
+    fi
     
     # Enable and start Samba services
     echo "Starting Samba services..."
