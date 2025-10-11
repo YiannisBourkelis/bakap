@@ -125,22 +125,12 @@ get_last_backup_date() {
     local last_activity=""
     local activity_epoch=0
     
-    # Check latest snapshot
+    # Check latest snapshot directory (not files in uploads)
+    # This shows when the most recent snapshot was created
     if [ -d "$home_dir/versions" ]; then
         local latest_snapshot=$(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
         if [ -n "$latest_snapshot" ]; then
             activity_epoch=$(stat -c %Y "$latest_snapshot" 2>/dev/null || stat -f %m "$latest_snapshot" 2>/dev/null || echo 0)
-        fi
-    fi
-    
-    # Check uploads directory for any newer files
-    if [ -d "$home_dir/uploads" ]; then
-        local latest_file=$(find "$home_dir/uploads" -type f -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1)
-        if [ -n "$latest_file" ]; then
-            local file_epoch=$(echo "$latest_file" | cut -d' ' -f1 | cut -d. -f1)
-            if [ "$file_epoch" -gt "$activity_epoch" ]; then
-                activity_epoch=$file_epoch
-            fi
         fi
     fi
     
