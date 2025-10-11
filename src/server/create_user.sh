@@ -93,8 +93,12 @@ setup_samba_share() {
    full_audit:priority = notice
 EOF
     
-    # Restart Samba services
-    systemctl restart smbd nmbd
+    # Restart Samba services (nmbd may not be running on all systems)
+    if systemctl restart smbd nmbd 2>/dev/null; then
+        : # Both services restarted successfully
+    else
+        systemctl restart smbd 2>/dev/null || true
+    fi
     
     echo "  ✓ Samba share created: //$HOSTNAME/$username-backup"
     echo "  ✓ Access credentials: $username / [same password as SFTP]"
