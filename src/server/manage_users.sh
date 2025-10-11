@@ -247,9 +247,10 @@ build_samba_connection_cache() {
         
         if [ "$use_journald" = true ]; then
             # Parse from journald (smbd logs with audit prefix)
-            # Format: smbd_audit: username|ip|machine|operation
-            latest_line=$(journalctl --since "90 days ago" -u smbd -u nmbd --no-pager 2>/dev/null | \
-                grep "smbd_audit.*$user|" | \
+            # Format: Oct 12 01:21:40 debmain smbd_audit[536369]: sambatest|94.69.215.1|myrsini-pc|close|ok|...
+            latest_line=$(journalctl --since "30 days ago" -u smbd --no-pager 2>/dev/null | \
+                grep "smbd_audit\[" | \
+                grep ": $user|" | \
                 grep -E "connect|write|pwrite|close" | \
                 tail -1)
         else
@@ -261,15 +262,13 @@ build_samba_connection_cache() {
         fi
         
         if [ -n "$latest_line" ]; then
-            # Extract timestamp (first 3 fields for syslog, or journald format)
-            local timestamp=""
-            if [ "$use_journald" = true ]; then
-                # Journald format: "Oct 12 14:23:45 hostname ..."
-                timestamp=$(echo "$latest_line" | awk '{print $1, $2, $3}')
-            else
-                # Syslog format: "Oct 12 14:23:45 ..."
-                timestamp=$(echo "$latest_line" | awk '{print $1, $2, $3}')
-            fi
+            # Extract timestamp
+            # Journald format: "Oct 12 01:21:40 hostname smbd_audit[...]: ..."
+            # We need: "Oct 12 01:21:40" (first 3 fields, but field 3 is the time)
+            local month=$(echo "$latest_line" | awk '{print $1}')
+            local day=$(echo "$latest_line" | awk '{print $2}')
+            local time=$(echo "$latest_line" | awk '{print $3}')
+            local timestamp="$month $day $time"
             
             if [ -n "$timestamp" ]; then
                 # Add current year if not present
