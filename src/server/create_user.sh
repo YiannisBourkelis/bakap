@@ -84,6 +84,13 @@ setup_samba_share() {
    map hidden = no
    map system = no
    map readonly = no
+   # VFS audit module for tracking SMB file operations
+   vfs objects = full_audit
+   full_audit:prefix = %u|%I|%m
+   full_audit:success = connect disconnect open close write pwrite mkdir rmdir rename unlink
+   full_audit:failure = none
+   full_audit:facility = local5
+   full_audit:priority = notice
 EOF
     
     # Restart Samba services

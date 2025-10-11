@@ -281,15 +281,40 @@ if [ "$ENABLE_SAMBA" = "true" ]; then
 SMB
     
     # Configure fail2ban for Samba protection
+    # Create custom filter that works with both auth logs and audit logs
+    if [ ! -f /etc/fail2ban/filter.d/bakap-samba.conf ]; then
+        cat > /etc/fail2ban/filter.d/bakap-samba.conf <<'FILTER'
+# Bakap fail2ban filter for Samba
+# Matches authentication failures from Samba logs (log level 1 auth:3)
+
+[Definition]
+# Match authentication failures (NT_STATUS_LOGON_FAILURE, NT_STATUS_WRONG_PASSWORD, etc.)
+# Example: [2025/01/12 14:23:45.678901,  3] ../../source3/auth/auth.c:234(auth_check_ntlm_password)
+#   check_ntlm_password:  Authentication for user [username] -> [username] FAILED with error NT_STATUS_WRONG_PASSWORD
+failregex = ^.*Authentication for user .* FAILED.*from \[ipv4:<HOST>:\d+\]
+            ^.*auth_check_ntlm_password.*client.*\[<HOST>\].*FAILED
+            ^.*smbd_audit.*\|<HOST>\|.*\|connect\|fail
+
+# Ignore successful authentications
+ignoreregex = ^.*Authentication.*SUCCEEDED
+FILTER
+        echo "  - Created fail2ban Samba filter"
+    else
+        echo "  - fail2ban Samba filter already exists"
+    fi
+    
+    # Configure fail2ban jail
     if [ ! -f /etc/fail2ban/jail.d/bakap-samba.conf ]; then
         cat > /etc/fail2ban/jail.d/bakap-samba.conf <<F2B
 # Bakap fail2ban configuration for Samba protection
+# Monitors both authentication logs and VFS audit log
 [bakap-samba]
 enabled = true
 port = 445
-filter = samba
+filter = bakap-samba
 logpath = /var/log/samba/log.*
-maxretry = 3
+          /var/log/samba/audit.log
+maxretry = 5
 bantime = 3600
 findtime = 600
 F2B
@@ -297,6 +322,22 @@ F2B
     else
         echo "  - fail2ban Samba jail configuration already exists"
     fi
+    
+    # Configure rsyslog to capture Samba audit logs
+    if [ ! -f /etc/rsyslog.d/30-bakap-samba-audit.conf ]; then
+        cat > /etc/rsyslog.d/30-bakap-samba-audit.conf <<'RSYSLOG'
+# Bakap Samba VFS audit logging
+# Captures SMB file operations to separate log file
+local5.*    /var/log/samba/audit.log
+RSYSLOG
+        systemctl restart rsyslog
+        echo "  - Configured rsyslog for Samba audit logging"
+    fi
+    
+    # Ensure audit log file exists with proper permissions
+    touch /var/log/samba/audit.log
+    chmod 640 /var/log/samba/audit.log
+    chown root:adm /var/log/samba/audit.log
     
     # Enable and start Samba services
     echo "Starting Samba services..."
@@ -307,6 +348,7 @@ F2B
     echo "    * Encryption required for all connections"
     echo "    * fail2ban protection (3 failed attempts = 1 hour ban)"
     echo "    * User-specific shares with restricted permissions"
+    echo "    * VFS audit logging enabled for connection tracking"
 fi
 
 # Create base directories

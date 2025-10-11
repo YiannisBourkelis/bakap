@@ -217,68 +217,48 @@ get_last_connection() {
 build_samba_connection_cache() {
     declare -gA SAMBA_CONNECTION_CACHE
     
-    # Check if Samba log directory exists
-    if [ ! -d /var/log/samba ]; then
+    # Check Samba VFS audit log for SMB file operations
+    # The audit log format is: timestamp hostname username|ip|machine operation
+    # Example: Oct 12 14:23:45 debmain sambatest|192.168.1.100|myrsini-pc|connect
+    
+    local audit_log="/var/log/samba/audit.log"
+    
+    if [ ! -f "$audit_log" ]; then
+        # Audit log doesn't exist yet, return
         return
     fi
     
-    # Parse Samba logs for authentication events
-    # With "log level = 1 auth:3", Samba logs authentication success messages
-    # We look for patterns indicating successful connections
-    
-    for logfile in /var/log/samba/log.*; do
-        # Skip special system log files (keep only client logs)
-        if [[ "$logfile" =~ \.(smbd|nmbd|winbindd|rpcd_|samba-|wb-)$ ]]; then
+    local users=$(get_backup_users)
+    while IFS= read -r user; do
+        if [ -z "$user" ]; then
             continue
         fi
         
-        # Skip empty files
-        if [ ! -f "$logfile" ] || [ ! -s "$logfile" ]; then
+        # Only check users with Samba enabled
+        if ! has_samba_enabled "$user"; then
             continue
         fi
         
-        # Look for authentication success messages
-        while IFS= read -r line; do
-            local user=""
-            local timestamp=""
+        # Search for this user's SMB operations in audit log
+        # Look for connect, write, pwrite operations (indicates active usage)
+        local latest_line=$(grep "^[A-Za-z].*$user|" "$audit_log" 2>/dev/null | grep -E "connect|write|pwrite|close" | tail -1)
+        
+        if [ -n "$latest_line" ]; then
+            # Extract timestamp (first 3 fields: Oct 12 14:23:45)
+            local timestamp=$(echo "$latest_line" | awk '{print $1, $2, $3}')
             
-            # Pattern 1: "connect to service USERNAME-backup initially as user USERNAME"
-            if echo "$line" | grep -q "connect to service.*as user"; then
-                user=$(echo "$line" | sed -n 's/.*as user \([^ ]*\).*/\1/p' | head -1)
-                timestamp=$(echo "$line" | sed -n 's/^\[\([^,]*\).*/\1/p')
-            
-            # Pattern 2: "Successful authentication as USERNAME"  
-            elif echo "$line" | grep -q "Successful authentication as"; then
-                user=$(echo "$line" | sed -n 's/.*authentication as \([^ ]*\).*/\1/p' | head -1)
-                timestamp=$(echo "$line" | sed -n 's/^\[\([^,]*\).*/\1/p')
-            
-            # Pattern 3: "authenticated as user USERNAME"
-            elif echo "$line" | grep -q "authenticated as user"; then
-                user=$(echo "$line" | sed -n 's/.*authenticated as user \([^ ]*\).*/\1/p' | head -1)
-                timestamp=$(echo "$line" | sed -n 's/^\[\([^,]*\).*/\1/p')
-            fi
-            
-            # Process the extracted user and timestamp
-            if [ -n "$user" ] && [ -n "$timestamp" ]; then
-                # Convert Samba timestamp format (2025/10/11 21:28:45) to epoch
-                local epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo 0)
+            if [ -n "$timestamp" ]; then
+                # Add current year if not present
+                local current_year=$(date +%Y)
+                local epoch=$(date -d "$current_year $timestamp" +%s 2>/dev/null || echo 0)
                 
                 if [ "$epoch" -gt 0 ]; then
-                    # Only store if this is newer than what we have (or first entry)
-                    if [ -z "${SAMBA_CONNECTION_CACHE[$user]}" ]; then
-                        local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                        SAMBA_CONNECTION_CACHE[$user]="$formatted|$epoch"
-                    else
-                        local existing_epoch=$(echo "${SAMBA_CONNECTION_CACHE[$user]}" | cut -d'|' -f2)
-                        if [ "$epoch" -gt "$existing_epoch" ]; then
-                            local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                            SAMBA_CONNECTION_CACHE[$user]="$formatted|$epoch"
-                        fi
-                    fi
+                    local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                    SAMBA_CONNECTION_CACHE[$user]="$formatted|$epoch"
                 fi
             fi
-        done < <(grep -E "connect to service|authenticated as user|Successful authentication" "$logfile" 2>/dev/null)
-    done
+        fi
+    done <<< "$users"
 }
 
 # Get last Samba connection time for a user from cache
@@ -389,6 +369,13 @@ enable_samba() {
    map hidden = no
    map system = no
    map readonly = no
+   # VFS audit module for tracking SMB file operations
+   vfs objects = full_audit
+   full_audit:prefix = %u|%I|%m
+   full_audit:success = connect disconnect open close write pwrite mkdir rmdir rename unlink
+   full_audit:failure = none
+   full_audit:facility = local5
+   full_audit:priority = notice
 EOF
     
     # Restart Samba services
