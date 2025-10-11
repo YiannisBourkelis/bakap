@@ -272,9 +272,10 @@ build_samba_connection_cache() {
             local timestamp="$month $day $time"
             
             if [ -n "$timestamp" ]; then
-                # Add current year if not present
+                # Convert to epoch - GNU date format
+                # Format should be: "2025-10-12 01:24:03" or "Oct 12 01:24:03 2025"
                 local current_year=$(date +%Y)
-                local epoch=$(date -d "$current_year $timestamp" +%s 2>/dev/null || echo 0)
+                local epoch=$(date -d "$timestamp $current_year" +%s 2>/dev/null || echo 0)
                 
                 if [ "$epoch" -gt 0 ]; then
                     local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
