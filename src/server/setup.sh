@@ -276,11 +276,26 @@ if [ "$ENABLE_SAMBA" = "true" ]; then
    oplocks = yes
    max xmit = 65535
    dead time = 15
-   
-   # Include user-specific configurations
-   # Include all user config files for share visibility during browsing
-   include = /etc/samba/smb.conf.d/*.conf
+
 SMB
+    
+    # Append all existing user configs to main smb.conf for visibility
+    # Per-user config files in smb.conf.d/ are maintained for easy editing
+    if [ -d /etc/samba/smb.conf.d ]; then
+        for user_conf in /etc/samba/smb.conf.d/*.conf; do
+            if [ -f "$user_conf" ]; then
+                echo "" >> /etc/samba/smb.conf
+                cat "$user_conf" >> /etc/samba/smb.conf
+            fi
+        done
+    fi
+    
+    cat >> /etc/samba/smb.conf <<'SMB2'
+
+# Note: User shares are appended above during setup
+# To add new users: run create_user.sh which maintains per-user config files
+# and appends them to this main config for share visibility
+SMB2
     
     # Configure fail2ban for Samba protection
     # Create custom filter that works with both auth logs and audit logs

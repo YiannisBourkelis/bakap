@@ -64,6 +64,7 @@ setup_samba_share() {
     local smb_conf="/etc/samba/smb.conf.d/$username.conf"
     mkdir -p /etc/samba/smb.conf.d
     
+    # Create per-user config file for easy maintenance
     cat > "$smb_conf" << EOF
 [$username-backup]
    path = /home/$username/uploads
@@ -92,6 +93,40 @@ setup_samba_share() {
    full_audit:facility = local1
    full_audit:priority = notice
 EOF
+    
+    # Also append to main smb.conf for share visibility
+    if ! grep -q "^\[$username-backup\]" /etc/samba/smb.conf 2>/dev/null; then
+        cat >> /etc/samba/smb.conf << EOF
+
+# Share for user: $username
+[$username-backup]
+   path = /home/$username/uploads
+   browseable = no
+   writable = yes
+   guest ok = no
+   valid users = $username
+   create mask = 0644
+   directory mask = 0755
+   force user = $username
+   force group = backupusers
+   # Strict security settings
+   read only = no
+   public = no
+   printable = no
+   store dos attributes = no
+   map archive = no
+   map hidden = no
+   map system = no
+   map readonly = no
+   # VFS audit module for tracking SMB file operations
+   vfs objects = full_audit
+   full_audit:prefix = %u|%I|%m
+   full_audit:success = connect disconnect open close write pwrite
+   full_audit:failure = connect
+   full_audit:facility = local1
+   full_audit:priority = notice
+EOF
+    fi
     
     # Restart Samba services (nmbd may not be running on all systems)
     if systemctl restart smbd nmbd 2>/dev/null; then

@@ -1220,6 +1220,15 @@ delete_user() {
     # Remove Samba configuration
     if [ -f "/etc/samba/smb.conf.d/$username.conf" ]; then
         rm -f "/etc/samba/smb.conf.d/$username.conf"
+        
+        # Also remove from main smb.conf
+        if [ -f /etc/samba/smb.conf ]; then
+            # Remove the share section (from comment line to next blank line or EOF)
+            sed -i "/^# Share for user: $username$/,/^$/d" /etc/samba/smb.conf
+            # Fallback: remove share block if comment line doesn't exist
+            sed -i "/^\[$username-backup\]$/,/^$/d" /etc/samba/smb.conf
+        fi
+        
         # Restart Samba to apply changes
         systemctl restart smbd 2>/dev/null || true
     fi
