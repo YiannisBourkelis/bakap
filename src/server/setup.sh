@@ -87,7 +87,7 @@ apt update && apt upgrade -y
 
 # Install required packages (removed rsync, added btrfs-progs)
 echo "Installing required packages..."
-PACKAGES="openssh-server pwgen cron inotify-tools btrfs-progs fail2ban bc coreutils"
+PACKAGES="openssh-server pwgen cron inotify-tools btrfs-progs fail2ban nftables bc coreutils"
 if [ "$ENABLE_SAMBA" = "true" ]; then
     PACKAGES="$PACKAGES samba samba-common-bin"
     echo "  - Including Samba packages for SMB support"
@@ -162,7 +162,7 @@ backend = systemd
 maxretry = 5
 bantime = 3600
 findtime = 600
-action = iptables-allports[name=sshd]
+banaction = nftables[type=multiport]
 
 [sshd-ddos]
 enabled = true
@@ -173,7 +173,7 @@ backend = systemd
 maxretry = 10
 bantime = 600
 findtime = 60
-action = iptables-allports[name=sshd-ddos]
+banaction = nftables[type=multiport]
 F2B
     echo "  - Created fail2ban SSH/SFTP jail configuration (using $AUTH_LOG)"
 else
@@ -335,6 +335,7 @@ journalmatch = _TRANSPORT=syslog
 maxretry = 5
 bantime = 3600
 findtime = 600
+banaction = nftables[type=multiport]
 F2B
         echo "  - Created fail2ban Samba jail configuration"
         NEED_FAIL2BAN_RESTART=true
