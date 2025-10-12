@@ -473,12 +473,7 @@ list_users() {
         fi
     done <<< "$users"
     
-    # Build connection caches once for all users (performance optimization)
-    build_connection_cache
-    if [ "$any_samba" = true ]; then
-        build_samba_connection_cache
-    fi
-    
+    # Display header immediately before doing heavy processing
     echo "Backup Users:"
     if [ "$any_samba" = true ]; then
         echo "=============================================================================================================================================="
@@ -488,6 +483,12 @@ list_users() {
         echo "=================================================================================================================================="
         printf "%-16s %8s %8s %6s %8s %19s %19s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Protocol" "Last Snapshot" "Last SFTP" "Status"
         echo "----------------------------------------------------------------------------------------------------------------------------------"
+    fi
+    
+    # Build connection caches once for all users (performance optimization)
+    build_connection_cache
+    if [ "$any_samba" = true ]; then
+        build_samba_connection_cache
     fi
     
     local total_actual="0.00"
