@@ -635,7 +635,7 @@ list_users() {
         # Determine protocol support
         local protocol="SFTP"
         if has_samba_enabled "$user"; then
-            protocol="SFTP+SMB"
+            protocol="SMB+SFTP"
         fi
         
         # Print with color - adjust format based on whether Samba column is shown
