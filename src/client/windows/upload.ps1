@@ -28,6 +28,8 @@
   Enable debug logging to a temporary file (shows WinSCP/pscp raw output).
 .PARAMETER Force
   Force upload: overwrite existing remote files/directories and upload even if identical.
+.PARAMETER DeleteRemote
+  For directory synchronization, delete remote files that don't exist locally (WARNING: USE WITH CAUTION).
 .PARAMETER WinSCPPath
   Path to WinSCP.com executable (if not in PATH).
 .PARAMETER Server
@@ -36,10 +38,12 @@
 USAGE
   .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -Server 202.61.15.24 -DestPath uploads/ -ExpectedHostFingerprint 'SHA256:...'
   .\upload.ps1 -LocalPath C:\path\file.sql.gz -Username test2 -Password 'pass' -Server 192.168.1.100 -DestPath uploads/ -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com' -Force
+  .\upload.ps1 -LocalPath C:\data\backup -Username test2 -Password 'pass' -Server 192.168.1.100 -DeleteRemote  # Sync directory and delete remote files not present locally
 
 Notes:
 - Install WinSCP and put WinSCP.com in PATH: https://winscp.net/
 - WinSCP is required for synchronize functionality (incremental uploads).
+- Use -DeleteRemote with CAUTION: it will remove remote files that don't exist locally during directory sync.
 #>
 
 param(
@@ -50,6 +54,7 @@ param(
   [string]$ExpectedHostFingerprint = "",
   [switch]$LogDebug,
   [switch]$Force,
+  [switch]$DeleteRemote,
   [string]$WinSCPPath = "",
   [Parameter(Mandatory=$true)][string]$Server
 )
@@ -98,6 +103,7 @@ Write-Log "  WinSCPPath: $WinSCPPath"
 Write-Log "  ExpectedHostFingerprint: $(if($ExpectedHostFingerprint){'<provided>'}else{'<not provided>'})"
 Write-Log "  LogDebug: $($LogDebug.IsPresent)"
 Write-Log "  Force: $($Force.IsPresent)"
+Write-Log "  DeleteRemote: $($DeleteRemote.IsPresent)"
 Write-Log "Host key cache: $hostKeyCacheFile"
 
 if (-not (Test-Path -LiteralPath $LocalPath)) {
@@ -250,10 +256,12 @@ rm "$DestPath"
     }
   }
 
-  # Use synchronize for directories (incremental sync with delete), put for files
+  # Use synchronize for directories (incremental sync), put for files
+  # Only delete remote files if -DeleteRemote switch is specified
   if ((Test-Path -LiteralPath $LocalPath) -and (Get-Item $LocalPath).PSIsContainer) {
+    $deleteFlag = if ($DeleteRemote) { "-delete " } else { "" }
     $putCmd = @"
-synchronize remote -delete "$LocalPath" "$DestPath"
+synchronize remote $deleteFlag"$LocalPath" "$DestPath"
 "@
   } else {
     $putCmd = @"
