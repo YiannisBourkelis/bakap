@@ -270,6 +270,9 @@ PowerShell script with hash-based skipping and WinSCP support:
 
 # Force upload (skip hash check)
 .\upload.ps1 -LocalPath "C:\data\file.txt" -User backupuser -Password "pass" -Server backup.example.com -Force
+
+# Sync directory and delete remote files not present locally (USE WITH CAUTION)
+.\upload.ps1 -LocalPath "C:\data\folder" -User backupuser -Password "pass" -Server backup.example.com -DeleteRemote
 ```
 
 **Parameters:**
@@ -280,6 +283,7 @@ PowerShell script with hash-based skipping and WinSCP support:
 - `-DestinationPath` (optional): Remote path (defaults to `/uploads`)
 - `-Port` (optional): SFTP port (default: 22)
 - `-Force` (optional): Skip hash check, always upload
+- `-DeleteRemote` (optional): For directory synchronization, delete remote files that don't exist locally (**WARNING: USE WITH CAUTION**)
 
 **Features:**
 - SHA-256 hash checking to skip unchanged files
