@@ -279,22 +279,23 @@ if [ "$ENABLE_SAMBA" = "true" ]; then
 
 SMB
     
-    # Append all existing user configs to main smb.conf for visibility
-    # Per-user config files in smb.conf.d/ are maintained for easy editing
+    # Add explicit includes for each per-user config file
+    # This ensures all shares in per-user files are loaded (wildcards have limitations)
+    echo "" >> /etc/samba/smb.conf
+    echo "# Explicit includes for per-user configurations" >> /etc/samba/smb.conf
     if [ -d /etc/samba/smb.conf.d ]; then
         for user_conf in /etc/samba/smb.conf.d/*.conf; do
             if [ -f "$user_conf" ]; then
-                echo "" >> /etc/samba/smb.conf
-                cat "$user_conf" >> /etc/samba/smb.conf
+                echo "include = $user_conf" >> /etc/samba/smb.conf
             fi
         done
     fi
     
     cat >> /etc/samba/smb.conf <<'SMB2'
 
-# Note: User shares are appended above during setup
-# To add new users: run create_user.sh which maintains per-user config files
-# and appends them to this main config for share visibility
+# Note: Per-user config files in /etc/samba/smb.conf.d/ are included above
+# To add new users: run create_user.sh or manage_users.sh enable-samba
+# The include list is automatically updated when users are added/removed
 SMB2
     
     # Configure fail2ban for Samba protection

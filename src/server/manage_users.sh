@@ -74,6 +74,59 @@ check_root() {
     fi
 }
 
+# Update Samba configuration to use explicit includes for per-user config files
+# This ensures all shares in per-user files are loaded (wildcards don't work with multiple shares)
+update_samba_includes() {
+    local smb_conf="/etc/samba/smb.conf"
+    
+    # Check if Samba is configured
+    if [ ! -f "$smb_conf" ]; then
+        return 0  # Samba not configured, skip
+    fi
+    
+    # Check if smb.conf.d directory exists
+    if [ ! -d "/etc/samba/smb.conf.d" ]; then
+        return 0
+    fi
+    
+    # Remove any existing include lines (both wildcard and explicit)
+    sed -i '/^include = \/etc\/samba\/smb.conf.d\//d' "$smb_conf"
+    sed -i '/^config include = \/etc\/samba\/smb.conf.d\//d' "$smb_conf"
+    # Also remove the comment line if it exists
+    sed -i '/^# Explicit includes for per-user configurations/d' "$smb_conf"
+    
+    # Find where to insert the includes
+    local first_share_line=$(grep -n '^\[.*-backup\]' "$smb_conf" | head -1 | cut -d: -f1)
+    
+    if [ -n "$first_share_line" ]; then
+        # Create a temporary file with the includes
+        local tmpfile=$(mktemp)
+        echo "# Explicit includes for per-user configurations" > "$tmpfile"
+        for conf in /etc/samba/smb.conf.d/*.conf; do
+            if [ -f "$conf" ]; then
+                echo "include = $conf" >> "$tmpfile"
+            fi
+        done
+        echo "" >> "$tmpfile"
+        
+        # Split the file and insert includes
+        head -n $((first_share_line - 1)) "$smb_conf" > "${smb_conf}.tmp"
+        cat "$tmpfile" >> "${smb_conf}.tmp"
+        tail -n +${first_share_line} "$smb_conf" >> "${smb_conf}.tmp"
+        mv "${smb_conf}.tmp" "$smb_conf"
+        rm -f "$tmpfile"
+    else
+        # No shares yet, append at end of file
+        echo "" >> "$smb_conf"
+        echo "# Explicit includes for per-user configurations" >> "$smb_conf"
+        for conf in /etc/samba/smb.conf.d/*.conf; do
+            if [ -f "$conf" ]; then
+                echo "include = $conf" >> "$smb_conf"
+            fi
+        done
+    fi
+}
+
 # Get list of backup users (members of backupusers group)
 get_backup_users() {
     # Get the GID of backupusers group
@@ -417,6 +470,9 @@ enable_samba() {
    full_audit:priority = notice
 EOF
     
+    # Update main smb.conf to include this user's config file
+    update_samba_includes
+    
     # Restart Samba services
     systemctl restart smbd nmbd
     
@@ -463,6 +519,9 @@ disable_samba() {
         rm -f "$smb_conf"
         echo "  Removed Samba configuration file"
     fi
+    
+    # Update main smb.conf to remove this user's include
+    update_samba_includes
     
     # Restart Samba services
     systemctl restart smbd nmbd
@@ -552,6 +611,9 @@ enable_samba_versions() {
    full_audit:priority = notice
 EOF
     
+    # Update main smb.conf to reload includes (picks up the new share)
+    update_samba_includes
+    
     # Reload Samba configuration
     systemctl reload smbd
     
@@ -614,6 +676,10 @@ disable_samba_versions() {
     sed -i "/^\[${username}-versions\]/,\$d" "$smb_conf"
     
     echo "  Removed versions share from Samba configuration"
+    
+    # Update main smb.conf (no change needed as we still include the same file)
+    # But we reload includes anyway for consistency
+    update_samba_includes
     
     # Reload Samba configuration
     systemctl reload smbd

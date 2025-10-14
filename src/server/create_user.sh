@@ -94,38 +94,17 @@ setup_samba_share() {
    full_audit:priority = notice
 EOF
     
-    # Also append to main smb.conf for share visibility
-    if ! grep -q "^\[$username-backup\]" /etc/samba/smb.conf 2>/dev/null; then
-        cat >> /etc/samba/smb.conf << EOF
-
-# Share for user: $username
-[$username-backup]
-   path = /home/$username/uploads
-   browseable = no
-   writable = yes
-   guest ok = no
-   valid users = $username
-   create mask = 0644
-   directory mask = 0755
-   force user = $username
-   force group = backupusers
-   # Strict security settings
-   read only = no
-   public = no
-   printable = no
-   store dos attributes = no
-   map archive = no
-   map hidden = no
-   map system = no
-   map readonly = no
-   # VFS audit module for tracking SMB file operations
-   vfs objects = full_audit
-   full_audit:prefix = %u|%I|%m
-   full_audit:success = connect disconnect open close write pwrite
-   full_audit:failure = connect
-   full_audit:facility = local1
-   full_audit:priority = notice
-EOF
+    # Add explicit include to main smb.conf for this user's config
+    # (Per-user config files are loaded via explicit includes, not wildcards)
+    if [ -f /etc/samba/smb.conf ] && ! grep -q "^include = $smb_conf" /etc/samba/smb.conf 2>/dev/null; then
+        # Find the line with "# Explicit includes for per-user configurations" and add after it
+        if grep -q "# Explicit includes for per-user configurations" /etc/samba/smb.conf; then
+            # Add after the comment line
+            sed -i "/# Explicit includes for per-user configurations/a include = $smb_conf" /etc/samba/smb.conf
+        else
+            # Fallback: append at end
+            echo "include = $smb_conf" >> /etc/samba/smb.conf
+        fi
     fi
     
     # Restart Samba services (nmbd may not be running on all systems)
