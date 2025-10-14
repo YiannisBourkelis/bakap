@@ -509,6 +509,31 @@ sudo ./src/server/manage_users.sh delete <username>
 ```
 Removes the user account and all their data (requires confirmation).
 
+**Enable/Disable read-only SMB access to versions (snapshots):**
+```bash
+# Enable read-only access to snapshots via SMB (for disaster recovery)
+sudo ./src/server/manage_users.sh enable-samba-versions <username>
+
+# Disable read-only access
+sudo ./src/server/manage_users.sh disable-samba-versions <username>
+```
+
+**Important Notes:**
+- By default, only the `uploads` directory is shared via SMB for security
+- The `versions` directory is NOT exposed via SMB by default
+- Use `enable-samba-versions` when disaster recovery is needed (e.g., after ransomware attack)
+- This creates a separate read-only SMB share: `\\server\username-versions`
+- Snapshots remain immutable and root-owned (cannot be modified via SMB)
+- All access is logged via VFS audit for security monitoring
+- Requires Samba to be enabled for the user first (`enable-samba`)
+
+**Disaster Recovery Workflow:**
+1. User reports ransomware - `uploads` directory is encrypted
+2. Admin enables versions access: `enable-samba-versions username`
+3. User connects via `\\server\username-versions` in Windows Explorer
+4. User browses timestamped snapshots and restores needed files
+5. After recovery, admin disables access: `disable-samba-versions username`
+
 #### Retention Policy Configuration
 
 Edit `/etc/bakap-retention.conf` to customize snapshot retention:
@@ -647,6 +672,153 @@ sudo grep "Connection closed by authenticating user" /var/log/auth.log | tail -2
   ```
 
 - **Snapshots**: Created automatically on any file changes (add, modify, delete, move). Each snapshot is timestamped in `YYYY-MM-DD_HH-MM-SS` format.
+
+### Disaster Recovery: Accessing Backups After Ransomware Attack
+
+**Critical Scenario**: Your Windows machine is infected with ransomware, the `uploads` directory (SMB share) is encrypted, but your read-only `versions` snapshots remain intact. Here's how to restore your data:
+
+#### ✅ Method 1: SFTP Access (Recommended - Works Always)
+
+Even if SMB/Samba is compromised, SFTP access to versions always works because it uses a different protocol:
+
+**Using WinSCP (Windows GUI - Easiest):**
+1. Download and install WinSCP: https://winscp.net/
+2. Connect via SFTP to your backup server
+3. Navigate to the `/versions/` directory (read-only snapshots)
+4. Browse timestamped snapshots (e.g., `2025-10-14_12-47-05`)
+5. Right-click → Download to restore files to your Windows machine
+
+**Using Command Line SFTP:**
+```bash
+# Connect via SFTP
+sftp username@backup-server
+
+# List available snapshots
+cd versions
+ls
+
+# Enter the most recent snapshot
+cd 2025-10-14_12-47-05
+
+# Download specific files
+get important-file.docx
+
+# Download entire snapshot recursively
+get -r . C:\Restored\
+```
+
+**Why SFTP Always Works:**
+- ✅ Uses SSH protocol (port 22) - independent of SMB/Samba
+- ✅ Snapshots are read-only and owned by root - ransomware cannot modify them
+- ✅ Chrooted access means user can browse their own versions directory
+- ✅ Works even if Samba service is stopped or compromised
+
+#### ✅ Method 2: SMB Access to Versions (Admin-Enabled)
+
+**Security by Default**: The `versions` directory is NOT shared via SMB by default to minimize attack surface. However, for disaster recovery, an administrator can enable read-only SMB access with a single command.
+
+**Quick Enable (Recommended for Disaster Recovery):**
+
+```bash
+# Server administrator runs:
+sudo ./manage_users.sh enable-samba-versions username
+```
+
+**Output:**
+```
+==========================================
+✓ Read-only SMB access to versions enabled
+==========================================
+
+Share details:
+  Share name: //backup-server/username-versions
+  Path: /home/username/versions
+  Access: Read-only
+  User: username
+
+Windows access:
+  \\backup-server\username-versions
+
+Security notes:
+  • Snapshots are read-only and cannot be modified
+  • All access is logged via VFS audit
+  • SMB3 encryption is enforced
+  • Only user 'username' can access this share
+```
+
+**Then from Windows:**
+```
+1. Open Windows Explorer
+2. Navigate to: \\backup-server\username-versions
+3. Browse timestamped snapshots (e.g., 2025-10-14_12-47-05)
+4. Copy needed files to local machine
+```
+
+**After Recovery:**
+```bash
+# Disable SMB access to versions for security
+sudo ./manage_users.sh disable-samba-versions username
+```
+
+**Why This Approach Is Better:**
+- ✅ Secure by default (versions not exposed unless needed)
+- ✅ One-command enable/disable by administrator
+- ✅ Read-only access (snapshots remain immutable)
+- ✅ All access is logged for audit trail
+- ✅ Easy for Windows users (no WinSCP needed)
+- ✅ Can be toggled per user as needed
+
+#### 🔧 Method 3: Server-Side Restore (Admin Assistance)
+
+If you cannot access the server remotely, contact your system administrator to use the `manage_users.sh` restore command:
+
+```bash
+# Server admin runs:
+sudo ./manage_users.sh restore username 2025-10-14_12-47-05 /tmp/restore
+
+# Then admin can:
+# 1. ZIP the restored files: tar -czf restore.tar.gz /tmp/restore
+# 2. Transfer via secure method (SFTP, USB, etc.)
+```
+
+#### 📋 Best Practices for Disaster Recovery Preparation
+
+1. **Test SFTP access before disaster strikes**:
+   - Ensure you have WinSCP installed on recovery media or another machine
+   - Document your backup server hostname/IP and credentials
+   - Practice browsing the versions directory via SFTP
+
+2. **Keep credentials secure but accessible**:
+   - Store backup credentials in a password manager
+   - Keep a printed copy in a secure physical location
+   - Don't store credentials only on the machine being backed up!
+
+3. **Regular restore drills**:
+   - Periodically test downloading files from versions via SFTP
+   - Verify you can access versions from a different machine
+   - Confirm snapshots contain expected data
+
+4. **Document your backup server details**:
+   - Server hostname or IP address
+   - Your backup username
+   - SFTP port (usually 22)
+   - Location of latest snapshot (check via `manage_users.sh info username`)
+
+5. **Alternative access methods**:
+   - If your main network is compromised, consider:
+     * VPN access to backup server network
+     * Out-of-band management (iLO, IPMI, etc.)
+     * Physical console access to backup server
+
+#### 🛡️ Why This Protection Works
+
+- **Read-only snapshots**: Btrfs snapshots are immutable - even root cannot modify them without explicit commands
+- **Root ownership**: Snapshots are owned by root, not by the backup user
+- **Separate protocol**: SFTP doesn't depend on SMB/Samba - if one is compromised, the other still works
+- **Chroot isolation**: Users can only access their own data, preventing lateral movement
+- **Timestamped history**: Multiple snapshots mean you can choose a known-good restore point before infection
+
+**The golden rule**: **Always test disaster recovery before you need it!**
 
 ## Configuration Options
 

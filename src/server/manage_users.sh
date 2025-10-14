@@ -33,6 +33,8 @@ Commands:
     rebuild-all             Rebuild snapshots for all users (skips users with open files)
     enable-samba <username> Enable Samba (SMB) sharing for an existing user
     disable-samba <username> Disable Samba (SMB) sharing for an existing user
+    enable-samba-versions <username>  Enable read-only SMB access to versions (snapshots) directory
+    disable-samba-versions <username> Disable SMB access to versions directory
     help                    Show this help message
 
 Examples:
@@ -48,6 +50,8 @@ Examples:
     $SCRIPT_NAME rebuild testuser
     $SCRIPT_NAME rebuild-all
     $SCRIPT_NAME enable-samba testuser
+    $SCRIPT_NAME enable-samba-versions testuser
+    $SCRIPT_NAME disable-samba-versions testuser
     $SCRIPT_NAME disable-samba testuser
 
 Notes:
@@ -307,6 +311,13 @@ has_samba_enabled() {
     [ -f "/etc/samba/smb.conf.d/${username}.conf" ]
 }
 
+# Check if read-only Samba access to versions is enabled for a user
+has_samba_versions_enabled() {
+    local username="$1"
+    # Check if Samba versions config file exists for this user
+    [ -f "/etc/samba/smb.conf.d/${username}-versions.conf" ]
+}
+
 # Enable Samba sharing for an existing user
 enable_samba() {
     local username="$1"
@@ -456,6 +467,151 @@ disable_samba() {
     systemctl restart smbd nmbd
     
     echo "✓ Samba sharing disabled for user '$username'"
+}
+
+# Enable read-only Samba access to versions (snapshots) directory
+enable_samba_versions() {
+    local username="$1"
+    
+    if [ -z "$username" ]; then
+        echo "Error: Username is required" >&2
+        return 1
+    fi
+    
+    # Check if user exists
+    if ! id "$username" &>/dev/null; then
+        echo "Error: User '$username' does not exist" >&2
+        return 1
+    fi
+    
+    # Check if user is in backupusers group
+    if ! id "$username" | grep -q "backupusers"; then
+        echo "Error: User '$username' is not a backup user" >&2
+        return 1
+    fi
+    
+    # Check if Samba is installed
+    if ! command -v smbpasswd &>/dev/null; then
+        echo "ERROR: Samba is not installed on this server."
+        echo "To enable Samba support, run setup.sh with the --samba option:"
+        echo "  ./setup.sh --samba"
+        return 1
+    fi
+    
+    # Check if Samba user account exists
+    if ! pdbedit -L | grep -q "^$username:"; then
+        echo "ERROR: User '$username' does not have a Samba account."
+        echo "Please run: $SCRIPT_NAME enable-samba $username"
+        return 1
+    fi
+    
+    # Check if versions directory exists
+    if [ ! -d "/home/$username/versions" ]; then
+        echo "ERROR: Versions directory does not exist for user '$username'"
+        return 1
+    fi
+    
+    # Check if already enabled
+    if [ -f "/etc/samba/smb.conf.d/${username}-versions.conf" ]; then
+        echo "Read-only SMB access to versions is already enabled for user '$username'"
+        return 0
+    fi
+    
+    echo "Enabling read-only SMB access to versions for user '$username'..."
+    
+    # Create separate Samba configuration for versions directory
+    local versions_conf="/etc/samba/smb.conf.d/${username}-versions.conf"
+    mkdir -p /etc/samba/smb.conf.d
+    
+    cat > "$versions_conf" << EOF
+# Read-only access to backup snapshots for disaster recovery
+[$username-versions]
+   path = /home/$username/versions
+   comment = Read-only backup snapshots for $username
+   browseable = yes
+   read only = yes
+   writable = no
+   guest ok = no
+   valid users = $username
+   force user = $username
+   force group = backupusers
+   # Strict security settings
+   public = no
+   printable = no
+   create mask = 0000
+   directory mask = 0000
+   # VFS audit module for tracking access
+   vfs objects = full_audit
+   full_audit:prefix = %u|%I|%m|versions
+   full_audit:success = connect disconnect open readdir
+   full_audit:failure = none
+   full_audit:facility = local5
+   full_audit:priority = notice
+EOF
+    
+    # Reload Samba configuration
+    systemctl reload smbd
+    
+    echo "=========================================="
+    echo "✓ Read-only SMB access to versions enabled"
+    echo "=========================================="
+    echo ""
+    echo "Share details:"
+    echo "  Share name: //$HOSTNAME/$username-versions"
+    echo "  Path: /home/$username/versions"
+    echo "  Access: Read-only"
+    echo "  User: $username"
+    echo ""
+    echo "Windows access:"
+    echo "  \\\\$HOSTNAME\\$username-versions"
+    echo ""
+    echo "Security notes:"
+    echo "  • Snapshots are read-only and cannot be modified"
+    echo "  • All access is logged via VFS audit"
+    echo "  • SMB3 encryption is enforced"
+    echo "  • Only user '$username' can access this share"
+    echo ""
+    echo "To disable: $SCRIPT_NAME disable-samba-versions $username"
+}
+
+# Disable read-only Samba access to versions directory
+disable_samba_versions() {
+    local username="$1"
+    
+    if [ -z "$username" ]; then
+        echo "Error: Username is required" >&2
+        return 1
+    fi
+    
+    # Check if user exists
+    if ! id "$username" &>/dev/null; then
+        echo "Error: User '$username' does not exist" >&2
+        return 1
+    fi
+    
+    # Check if Samba is installed
+    if ! command -v smbpasswd &>/dev/null; then
+        echo "ERROR: Samba is not installed on this server."
+        return 1
+    fi
+    
+    # Check if enabled
+    local versions_conf="/etc/samba/smb.conf.d/${username}-versions.conf"
+    if [ ! -f "$versions_conf" ]; then
+        echo "Read-only SMB access to versions is not enabled for user '$username'"
+        return 0
+    fi
+    
+    echo "Disabling read-only SMB access to versions for user '$username'..."
+    
+    # Remove configuration file
+    rm -f "$versions_conf"
+    echo "  Removed Samba versions configuration file"
+    
+    # Reload Samba configuration
+    systemctl reload smbd
+    
+    echo "✓ Read-only SMB access to versions disabled for user '$username'"
 }
 
 # List all backup users with their disk usage
@@ -639,6 +795,10 @@ list_users() {
         local protocol="SFTP"
         if has_samba_enabled "$user"; then
             protocol="SMB+SFTP"
+            # Add asterisk if read-only versions access is enabled
+            if has_samba_versions_enabled "$user"; then
+                protocol="SMB*+SFTP"
+            fi
         fi
         
         # Print with color - adjust format based on whether Samba column is shown
@@ -675,7 +835,8 @@ list_users() {
     echo "Note: Size(MB) shows physical disk usage with Btrfs deduplication"
     echo "      Apparent shows logical size (sum of all files as if independent copies)"
     echo "      The difference shows space saved by Btrfs CoW snapshots"
-    echo "      Protocol shows available access methods (SFTP or SFTP+SMB)"
+    echo "      Protocol shows available access methods (SFTP or SMB+SFTP)"
+    echo "      SMB* = Read-only versions access enabled (disable with 'disable-samba-versions <user>')"
     echo "      Last Snapshot shows when the most recent snapshot was created"
     echo "      Last SFTP shows most recent SSH/SFTP authentication"
     if [ "$any_samba" = true ]; then
@@ -1807,6 +1968,22 @@ case "$command" in
             exit 1
         fi
         disable_samba "$1"
+        ;;
+    enable-samba-versions)
+        if [ $# -eq 0 ]; then
+            echo "Error: Username is required for enable-samba-versions command" >&2
+            usage
+            exit 1
+        fi
+        enable_samba_versions "$1"
+        ;;
+    disable-samba-versions)
+        if [ $# -eq 0 ]; then
+            echo "Error: Username is required for disable-samba-versions command" >&2
+            usage
+            exit 1
+        fi
+        disable_samba_versions "$1"
         ;;
     help|--help|-h)
         usage
