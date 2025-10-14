@@ -127,8 +127,10 @@ get_last_backup_date() {
     
     # Check latest snapshot directory (not files in uploads)
     # This shows when the most recent snapshot was created
+    # Sort by modification time (creation time), not alphabetically
+    # This handles snapshots with non-standard names like test_manual_*
     if [ -d "$home_dir/versions" ]; then
-        local latest_snapshot=$(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+        local latest_snapshot=$(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
         if [ -n "$latest_snapshot" ]; then
             activity_epoch=$(stat -c %Y "$latest_snapshot" 2>/dev/null || stat -f %m "$latest_snapshot" 2>/dev/null || echo 0)
         fi
