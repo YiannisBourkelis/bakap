@@ -314,8 +314,9 @@ has_samba_enabled() {
 # Check if read-only Samba access to versions is enabled for a user
 has_samba_versions_enabled() {
     local username="$1"
-    # Check if Samba versions config file exists for this user
-    [ -f "/etc/samba/smb.conf.d/${username}-versions.conf" ]
+    # Check if versions share exists in the user's main Samba config file
+    local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
+    [ -f "$smb_conf" ] && grep -q "^\[${username}-versions\]" "$smb_conf" 2>/dev/null
 }
 
 # Enable Samba sharing for an existing user
@@ -511,19 +512,21 @@ enable_samba_versions() {
         return 1
     fi
     
-    # Check if already enabled
-    if [ -f "/etc/samba/smb.conf.d/${username}-versions.conf" ]; then
+    # Check if already enabled (check in the user's main config file)
+    local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
+    if grep -q "^\[${username}-versions\]" "$smb_conf" 2>/dev/null; then
         echo "Read-only SMB access to versions is already enabled for user '$username'"
         return 0
     fi
     
     echo "Enabling read-only SMB access to versions for user '$username'..."
     
-    # Create separate Samba configuration for versions directory
-    local versions_conf="/etc/samba/smb.conf.d/${username}-versions.conf"
+    # Append versions share to the user's existing Samba config file
+    # This ensures Samba loads it properly (same file as the backup share)
     mkdir -p /etc/samba/smb.conf.d
     
-    cat > "$versions_conf" << EOF
+    cat >> "$smb_conf" << EOF
+
 # Read-only access to backup snapshots for disaster recovery
 [$username-versions]
    path = /home/$username/versions
@@ -595,18 +598,22 @@ disable_samba_versions() {
         return 1
     fi
     
-    # Check if enabled
-    local versions_conf="/etc/samba/smb.conf.d/${username}-versions.conf"
-    if [ ! -f "$versions_conf" ]; then
+    # Check if enabled (check in user's main config file)
+    local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
+    if [ ! -f "$smb_conf" ] || ! grep -q "^\[${username}-versions\]" "$smb_conf" 2>/dev/null; then
         echo "Read-only SMB access to versions is not enabled for user '$username'"
         return 0
     fi
     
     echo "Disabling read-only SMB access to versions for user '$username'..."
     
-    # Remove configuration file
-    rm -f "$versions_conf"
-    echo "  Removed Samba versions configuration file"
+    # Remove the versions share section from the user's config file
+    # Use sed to delete from [username-versions] to the next section or EOF
+    sed -i "/^\[${username}-versions\]/,/^\[/{ /^\[${username}-versions\]/d; /^\[/!d; }" "$smb_conf"
+    # Also handle case where versions section is at the end of file (no next section)
+    sed -i "/^\[${username}-versions\]/,\$d" "$smb_conf"
+    
+    echo "  Removed versions share from Samba configuration"
     
     # Reload Samba configuration
     systemctl reload smbd
