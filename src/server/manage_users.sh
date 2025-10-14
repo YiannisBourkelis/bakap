@@ -859,8 +859,10 @@ info_user() {
         echo "Snapshots: $snapshot_count"
         
         if [ "$snapshot_count" -gt 0 ]; then
-            local oldest=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | head -1)
-            local newest=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+            # Sort by modification time (creation time of snapshot), not alphabetically
+            # This handles snapshots with non-standard names like test_manual_*
+            local oldest=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -n | head -1 | cut -d' ' -f2-)
+            local newest=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
             
             if [ -n "$oldest" ]; then
                 echo "  Oldest:  $(basename "$oldest")"
