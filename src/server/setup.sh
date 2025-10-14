@@ -487,7 +487,7 @@ while read path event; do
         LOG="\$LOG"
         
         # Mark that we're monitoring this user
-        monitor_pid=\$\$
+        monitor_pid=\$BASHPID
         echo "\$monitor_pid" > "\$processing_file" 2>/dev/null || true
         
         # Keep monitoring until inactivity window is reached
