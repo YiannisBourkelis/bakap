@@ -614,8 +614,8 @@ EOF
     # Update main smb.conf to reload includes (picks up the new share)
     update_samba_includes
     
-    # Reload Samba configuration
-    systemctl reload smbd
+    # Restart Samba services (reload might not pick up new shares immediately)
+    systemctl restart smbd nmbd
     
     echo "=========================================="
     echo "✓ Read-only SMB access to versions enabled"
@@ -681,8 +681,8 @@ disable_samba_versions() {
     # But we reload includes anyway for consistency
     update_samba_includes
     
-    # Reload Samba configuration
-    systemctl reload smbd
+    # Restart Samba services (reload doesn't always work for removing shares)
+    systemctl restart smbd nmbd
     
     echo "✓ Read-only SMB access to versions disabled for user '$username'"
 }
