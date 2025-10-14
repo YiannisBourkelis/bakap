@@ -104,5 +104,8 @@ fi
 
 # Remove any runtime files
 rm -f "/var/run/bakap/last_$USERNAME" 2>/dev/null || true
+rm -f "/var/run/bakap/activity_$USERNAME" 2>/dev/null || true
+rm -f "/var/run/bakap/snapshot_$USERNAME" 2>/dev/null || true
+rm -f "/var/run/bakap/processing_$USERNAME" 2>/dev/null || true
 
 echo "User $USERNAME and all their data have been deleted."
