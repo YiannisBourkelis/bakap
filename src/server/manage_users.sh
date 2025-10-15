@@ -590,7 +590,7 @@ enable_samba_versions() {
     
     # Check if already enabled (check in the user's main config file)
     local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
-    if grep -q "^\[${username}-versions\]" "$smb_conf" 2>/dev/null; then
+    if grep -qF "[${username}-versions]" "$smb_conf" 2>/dev/null; then
         echo "Read-only SMB access to versions is already enabled for user '$username'"
         return 0
     fi
@@ -679,7 +679,7 @@ disable_samba_versions() {
     
     # Check if enabled (check in user's main config file)
     local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
-    if [ ! -f "$smb_conf" ] || ! grep -q "^\[${username}-versions\]" "$smb_conf" 2>/dev/null; then
+    if [ ! -f "$smb_conf" ] || ! grep -qF "[${username}-versions]" "$smb_conf" 2>/dev/null; then
         echo "Read-only SMB access to versions is not enabled for user '$username'"
         return 0
     fi
@@ -816,7 +816,7 @@ disable_timemachine() {
     
     # Check if enabled (check in user's main config file)
     local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
-    if [ ! -f "$smb_conf" ] || ! grep -q "^\[${username}-timemachine\]" "$smb_conf" 2>/dev/null; then
+    if [ ! -f "$smb_conf" ] || ! grep -qF "[${username}-timemachine]" "$smb_conf" 2>/dev/null; then
         echo "Time Machine support is not enabled for user '$username'"
         return 0
     fi
