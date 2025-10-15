@@ -45,6 +45,7 @@ validate_password() {
 setup_samba_share() {
     local username="$1"
     local password="$2"
+    local enable_timemachine="${3:-false}"
     
     echo "Setting up Samba share for $username..."
     
@@ -93,6 +94,26 @@ setup_samba_share() {
    full_audit:facility = local1
    full_audit:priority = notice
 EOF
+
+    # Add Time Machine share if requested
+    if [ "$enable_timemachine" = "true" ]; then
+        cat >> "$smb_conf" << EOF
+
+[$username-timemachine]
+   comment = Time Machine Backup for $username
+   path = /home/$username/uploads
+   browseable = yes
+   writable = yes
+   read only = no
+   create mask = 0700
+   directory mask = 0700
+   valid users = $username
+   vfs objects = fruit streams_xattr
+   fruit:aapl = yes
+   fruit:time machine = yes
+   fruit:time machine max size = 0
+EOF
+    fi
     
     # Add explicit include to main smb.conf for this user's config
     # (Per-user config files are loaded via explicit includes, not wildcards)
@@ -115,25 +136,31 @@ EOF
     fi
     
     echo "  ✓ Samba share created: //$HOSTNAME/$username-backup"
+    if [ "$enable_timemachine" = "true" ]; then
+        echo "  ✓ Time Machine share created: //$HOSTNAME/$username-timemachine"
+    fi
     echo "  ✓ Access credentials: $username / [same password as SFTP]"
 }
 
 # Parse command line arguments
 if [ $# -lt 1 ]; then
-    echo "Usage: $0 <username> [-p|--password <password>] [-s|--samba]"
+    echo "Usage: $0 <username> [-p|--password <password>] [-s|--samba] [-t|--timemachine]"
     echo ""
     echo "Options:"
-    echo "  -p, --password  Manually specify password (must be 30+ chars with lowercase, uppercase, and numbers)"
-    echo "  -s, --samba     Enable Samba (SMB) sharing for uploads directory"
+    echo "  -p, --password     Manually specify password (must be 30+ chars with lowercase, uppercase, and numbers)"
+    echo "  -s, --samba        Enable Samba (SMB) sharing for uploads directory"
+    echo "  -t, --timemachine  Enable macOS Time Machine support (requires --samba)"
     echo ""
     echo "If no password is provided, a secure 64-character random password will be generated."
     echo "Samba sharing allows other applications to use the uploads directory as a network share."
+    echo "Time Machine support enables macOS backup functionality via Samba."
     exit 1
 fi
 
 USERNAME=$1
 PASSWORD=""
 ENABLE_SAMBA=false
+ENABLE_TIMEMACHINE=false
 
 # Parse optional parameters
 shift
@@ -151,13 +178,24 @@ while [ $# -gt 0 ]; do
             ENABLE_SAMBA=true
             shift
             ;;
+        -t|--timemachine)
+            ENABLE_TIMEMACHINE=true
+            shift
+            ;;
         *)
             echo "ERROR: Unknown parameter: $1"
-            echo "Usage: $0 <username> [-p|--password <password>] [-s|--samba]"
+            echo "Usage: $0 <username> [-p|--password <password>] [-s|--samba] [-t|--timemachine]"
             exit 1
             ;;
     esac
 done
+
+# Validate Time Machine dependency
+if [ "$ENABLE_TIMEMACHINE" = true ] && [ "$ENABLE_SAMBA" = false ]; then
+    echo "ERROR: --timemachine requires --samba to be enabled"
+    echo "Usage: $0 <username> --samba --timemachine"
+    exit 1
+fi
 
 # Check if user exists
 if id "$USERNAME" &>/dev/null; then
@@ -231,13 +269,26 @@ chmod 755 "/home/$USERNAME/versions"
 
 # Setup Samba share if requested
 if [ "$ENABLE_SAMBA" = "true" ]; then
-    if ! setup_samba_share "$USERNAME" "$PASSWORD"; then
+    if ! setup_samba_share "$USERNAME" "$PASSWORD" "$ENABLE_TIMEMACHINE"; then
         echo "Failed to setup Samba share for user $USERNAME."
         echo "Cleaning up..."
         userdel -r "$USERNAME" 2>/dev/null
         exit 1
     fi
-    echo "User $USERNAME created successfully with Samba support."
+    if [ "$ENABLE_TIMEMACHINE" = "true" ]; then
+        echo "User $USERNAME created successfully with Samba and Time Machine support."
+        echo ""
+        echo "macOS Setup Instructions:"
+        echo "1. Open System Preferences → Time Machine"
+        echo "2. Click 'Select Disk'"
+        echo "3. Choose '${USERNAME}-timemachine' from the list"
+        echo "4. Enter credentials when prompted:"
+        echo "   Username: ${USERNAME}"
+        echo "   Password: [the password shown above]"
+        echo "5. Time Machine will now use this network share for backups"
+    else
+        echo "User $USERNAME created successfully with Samba support."
+    fi
 else
     echo "User $USERNAME created successfully."
 fi

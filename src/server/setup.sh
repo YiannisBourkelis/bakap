@@ -276,6 +276,15 @@ if [ "$ENABLE_SAMBA" = "true" ]; then
    oplocks = yes
    max xmit = 65535
    dead time = 15
+   
+   # macOS Time Machine support (VFS fruit module)
+   fruit:metadata = stream
+   fruit:model = MacSamba
+   fruit:posix_rename = yes
+   fruit:veto_appledouble = no
+   fruit:nfs_aces = no
+   fruit:wipe_intentionally_left_blank_rfork = yes
+   fruit:delete_empty_adfiles = yes
 
 SMB
     

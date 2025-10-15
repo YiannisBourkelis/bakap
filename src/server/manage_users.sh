@@ -35,6 +35,8 @@ Commands:
     disable-samba <username> Disable Samba (SMB) sharing for an existing user
     enable-samba-versions <username>  Enable read-only SMB access to versions (snapshots) directory
     disable-samba-versions <username> Disable SMB access to versions directory
+    enable-timemachine <username>     Enable macOS Time Machine support for a user
+    disable-timemachine <username>    Disable macOS Time Machine support for a user
     help                    Show this help message
 
 Examples:
@@ -53,6 +55,8 @@ Examples:
     $SCRIPT_NAME enable-samba-versions testuser
     $SCRIPT_NAME disable-samba-versions testuser
     $SCRIPT_NAME disable-samba testuser
+    $SCRIPT_NAME enable-timemachine testuser
+    $SCRIPT_NAME disable-timemachine testuser
 
 Notes:
     - The cleanup command removes old Btrfs snapshots and keeps only the latest
@@ -62,7 +66,12 @@ Notes:
     - Rebuild command deletes ALL existing snapshots and creates fresh snapshot from uploads
     - Rebuild skips users with files open in uploads directory (warns and continues)
     - Rebuild verifies file integrity between uploads and created snapshot
-    - Protocol column shows available access methods (SFTP or SFTP+SMB)
+    - Protocol column shows available access methods:
+      * SFTP: Basic SFTP-only access
+      * SMB+SFTP: Samba share enabled
+      * SMB*+SFTP: Samba share + read-only versions access
+      * SMBTM+SFTP: Samba share + Time Machine support
+      * SMB*TM+SFTP: Samba share + versions + Time Machine
 EOF
 }
 
@@ -370,6 +379,14 @@ has_samba_versions_enabled() {
     # Check if versions share exists in the user's main Samba config file
     local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
     [ -f "$smb_conf" ] && grep -q "^\[${username}-versions\]" "$smb_conf" 2>/dev/null
+}
+
+# Check if Time Machine support is enabled for a user
+has_timemachine_enabled() {
+    local username="$1"
+    # Check if timemachine share exists in the user's main Samba config file
+    local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
+    [ -f "$smb_conf" ] && grep -q "^\[${username}-timemachine\]" "$smb_conf" 2>/dev/null
 }
 
 # Enable Samba sharing for an existing user
@@ -687,6 +704,146 @@ disable_samba_versions() {
     echo "✓ Read-only SMB access to versions disabled for user '$username'"
 }
 
+# Enable macOS Time Machine support for a user
+enable_timemachine() {
+    local username="$1"
+    
+    if [ -z "$username" ]; then
+        echo "Error: Username is required" >&2
+        return 1
+    fi
+    
+    # Check if user exists
+    if ! id "$username" &>/dev/null; then
+        echo "Error: User '$username' does not exist" >&2
+        return 1
+    fi
+    
+    # Check if user is in backupusers group
+    if ! id "$username" | grep -q "backupusers"; then
+        echo "Error: User '$username' is not a backup user" >&2
+        return 1
+    fi
+    
+    # Check if Samba is installed
+    if ! command -v smbpasswd &>/dev/null; then
+        echo "ERROR: Samba is not installed on this server."
+        echo "Time Machine requires Samba. Please run setup.sh first."
+        return 1
+    fi
+    
+    # Check if Samba is enabled first
+    if ! has_samba_enabled "$username"; then
+        echo "Error: Samba is not enabled for user '$username'"
+        echo "Please enable Samba first: $SCRIPT_NAME enable-samba $username"
+        return 1
+    fi
+    
+    # Check if Time Machine is already enabled
+    if has_timemachine_enabled "$username"; then
+        echo "Time Machine support is already enabled for user '$username'"
+        return 0
+    fi
+    
+    echo "Enabling Time Machine support for user '$username'..."
+    
+    local home_dir="/home/${username}"
+    local uploads_dir="${home_dir}/uploads"
+    
+    # Create Time Machine share configuration
+    local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
+    cat >> "$smb_conf" <<EOF
+
+[${username}-timemachine]
+   comment = Time Machine Backup for ${username}
+   path = ${uploads_dir}
+   browseable = yes
+   writable = yes
+   read only = no
+   create mask = 0700
+   directory mask = 0700
+   valid users = ${username}
+   vfs objects = fruit streams_xattr
+   fruit:aapl = yes
+   fruit:time machine = yes
+   fruit:time machine max size = 0
+EOF
+    
+    echo "  Added Time Machine share to Samba configuration"
+    
+    # Update main smb.conf (no change needed as we still include the same file)
+    # But we reload includes anyway for consistency
+    update_samba_includes
+    
+    # Restart Samba services (reload doesn't always work for new shares)
+    systemctl restart smbd nmbd
+    
+    echo "✓ Time Machine support enabled for user '$username'"
+    echo ""
+    echo "macOS Setup Instructions:"
+    echo "1. Open System Preferences → Time Machine"
+    echo "2. Click 'Select Disk'"
+    echo "3. Choose '${username}-timemachine' from the list"
+    echo "4. Enter credentials when prompted:"
+    echo "   Username: ${username}"
+    echo "   Password: [user's Samba password]"
+    echo "5. Time Machine will now use this network share for backups"
+    echo ""
+    echo "Note: Bakap's monitoring service will automatically create snapshots"
+    echo "      when Time Machine writes files to the uploads directory."
+}
+
+# Disable macOS Time Machine support for a user
+disable_timemachine() {
+    local username="$1"
+    
+    if [ -z "$username" ]; then
+        echo "Error: Username is required" >&2
+        return 1
+    fi
+    
+    # Check if user exists
+    if ! id "$username" &>/dev/null; then
+        echo "Error: User '$username' does not exist" >&2
+        return 1
+    fi
+    
+    # Check if Samba is installed
+    if ! command -v smbpasswd &>/dev/null; then
+        echo "ERROR: Samba is not installed on this server."
+        return 1
+    fi
+    
+    # Check if enabled (check in user's main config file)
+    local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
+    if [ ! -f "$smb_conf" ] || ! grep -q "^\[${username}-timemachine\]" "$smb_conf" 2>/dev/null; then
+        echo "Time Machine support is not enabled for user '$username'"
+        return 0
+    fi
+    
+    echo "Disabling Time Machine support for user '$username'..."
+    
+    # Remove the timemachine share section from the user's config file
+    # Use sed to delete from [username-timemachine] to the next section or EOF
+    sed -i "/^\[${username}-timemachine\]/,/^\[/{ /^\[${username}-timemachine\]/d; /^\[/!d; }" "$smb_conf"
+    # Also handle case where timemachine section is at the end of file (no next section)
+    sed -i "/^\[${username}-timemachine\]/,\$d" "$smb_conf"
+    
+    echo "  Removed Time Machine share from Samba configuration"
+    
+    # Update main smb.conf (no change needed as we still include the same file)
+    # But we reload includes anyway for consistency
+    update_samba_includes
+    
+    # Restart Samba services (reload doesn't always work for removing shares)
+    systemctl restart smbd nmbd
+    
+    echo "✓ Time Machine support disabled for user '$username'"
+    echo ""
+    echo "Note: Existing backups in the uploads directory are not deleted."
+    echo "      The user can still access files via SFTP or the main SMB share."
+}
+
 # List all backup users with their disk usage
 list_users() {
     local users=$(get_backup_users)
@@ -868,9 +1025,16 @@ list_users() {
         local protocol="SFTP"
         if has_samba_enabled "$user"; then
             protocol="SMB+SFTP"
-            # Add asterisk if read-only versions access is enabled
-            if has_samba_versions_enabled "$user"; then
+            # Add markers for additional features
+            local has_versions=$(has_samba_versions_enabled "$user" && echo "yes" || echo "no")
+            local has_tm=$(has_timemachine_enabled "$user" && echo "yes" || echo "no")
+            
+            if [ "$has_versions" = "yes" ] && [ "$has_tm" = "yes" ]; then
+                protocol="SMB*TM+SFTP"
+            elif [ "$has_versions" = "yes" ]; then
                 protocol="SMB*+SFTP"
+            elif [ "$has_tm" = "yes" ]; then
+                protocol="SMBTM+SFTP"
             fi
         fi
         
@@ -2057,6 +2221,22 @@ case "$command" in
             exit 1
         fi
         disable_samba_versions "$1"
+        ;;
+    enable-timemachine)
+        if [ $# -eq 0 ]; then
+            echo "Error: Username is required for enable-timemachine command" >&2
+            usage
+            exit 1
+        fi
+        enable_timemachine "$1"
+        ;;
+    disable-timemachine)
+        if [ $# -eq 0 ]; then
+            echo "Error: Username is required for disable-timemachine command" >&2
+            usage
+            exit 1
+        fi
+        disable_timemachine "$1"
         ;;
     help|--help|-h)
         usage
