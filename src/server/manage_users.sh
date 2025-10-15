@@ -378,7 +378,7 @@ has_samba_versions_enabled() {
     local username="$1"
     # Check if versions share exists in the user's main Samba config file
     local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
-    [ -f "$smb_conf" ] && grep -q "^\\[${username}-versions\\]" "$smb_conf" 2>/dev/null
+    [ -f "$smb_conf" ] && grep -qF "[${username}-versions]" "$smb_conf" 2>/dev/null
 }
 
 # Check if Time Machine support is enabled for a user
@@ -386,7 +386,7 @@ has_timemachine_enabled() {
     local username="$1"
     # Check if timemachine share exists in the user's main Samba config file
     local smb_conf="/etc/samba/smb.conf.d/${username}.conf"
-    [ -f "$smb_conf" ] && grep -q "^\\[${username}-timemachine\\]" "$smb_conf" 2>/dev/null
+    [ -f "$smb_conf" ] && grep -qF "[${username}-timemachine]" "$smb_conf" 2>/dev/null
 }
 
 # Enable Samba sharing for an existing user
