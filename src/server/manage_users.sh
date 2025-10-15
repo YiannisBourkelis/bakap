@@ -1026,8 +1026,14 @@ list_users() {
         if has_samba_enabled "$user"; then
             protocol="SMB+SFTP"
             # Add markers for additional features
-            local has_versions=$(has_samba_versions_enabled "$user" && echo "yes" || echo "no")
-            local has_tm=$(has_timemachine_enabled "$user" && echo "yes" || echo "no")
+            local has_versions="no"
+            local has_tm="no"
+            if has_samba_versions_enabled "$user" 2>/dev/null; then
+                has_versions="yes"
+            fi
+            if has_timemachine_enabled "$user" 2>/dev/null; then
+                has_tm="yes"
+            fi
             
             if [ "$has_versions" = "yes" ] && [ "$has_tm" = "yes" ]; then
                 protocol="SMB*TM+SFTP"
