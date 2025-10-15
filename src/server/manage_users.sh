@@ -220,7 +220,7 @@ build_connection_cache() {
         # Get all accepted authentications in last 90 days, extract username and timestamp
         while IFS= read -r line; do
             # Extract username from "Accepted password for USERNAME" or "Accepted publickey for USERNAME"
-            local user=$(echo "$line" | grep -oP '(?<=Accepted (password|publickey) for )[^ ]+' | head -1)
+            local user=$(echo "$line" | sed -n 's/.*Accepted \(password\|publickey\) for \([^ ]*\).*/\2/p' | head -1)
             if [ -n "$user" ]; then
                 # Extract timestamp (first 3 fields: Oct 10 08:15:30)
                 local timestamp=$(echo "$line" | awk '{print $1, $2, $3}')
@@ -247,7 +247,7 @@ build_connection_cache() {
     # Fallback to auth.log if available
     if [ -f /var/log/auth.log ]; then
         while IFS= read -r line; do
-            local user=$(echo "$line" | grep -oP '(?<=Accepted (password|publickey) for )[^ ]+' | head -1)
+            local user=$(echo "$line" | sed -n 's/.*Accepted \(password\|publickey\) for \([^ ]*\).*/\2/p' | head -1)
             if [ -n "$user" ]; then
                 local timestamp=$(echo "$line" | awk '{print $1, $2, $3}')
                 local epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo 0)
