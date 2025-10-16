@@ -1142,21 +1142,51 @@ info_user() {
     local last_conn=$(echo "$conn_info" | cut -d'|' -f1)
     local conn_epoch=$(echo "$conn_info" | cut -d'|' -f2)
     
+    # Get SMB connection info if Samba is enabled
+    local samba_conn="Never"
+    local samba_epoch=0
+    if has_samba_enabled "$username"; then
+        local samba_info="${SAMBA_CONNECTION_CACHE[$username]}"
+        if [ -n "$samba_info" ]; then
+            samba_conn=$(echo "$samba_info" | cut -d'|' -f1)
+            samba_epoch=$(echo "$samba_info" | cut -d'|' -f2)
+        fi
+    fi
+    
     echo "Connection Activity:"
+    
+    # Display SFTP/SSH connection
     if [ "$last_conn" != "Never" ] && [ "$conn_epoch" -gt 0 ]; then
         local now=$(date +%s)
         local days_ago=$(( (now - conn_epoch) / 86400 ))
         local hours_ago=$(( (now - conn_epoch) / 3600 ))
         
-        echo "  Last connection: $last_conn"
+        echo "  Last SFTP:       $last_conn"
         if [ $hours_ago -lt 24 ]; then
-            echo "  Time since:      ${hours_ago} hours ago"
+            echo "                   ${hours_ago} hours ago"
         else
-            echo "  Time since:      ${days_ago} days ago"
+            echo "                   ${days_ago} days ago"
         fi
     else
-        echo "  Last connection: Never"
-        echo "  User has never authenticated via SSH/SFTP"
+        echo "  Last SFTP:       Never"
+    fi
+    
+    # Display SMB connection if Samba is enabled
+    if has_samba_enabled "$username"; then
+        if [ "$samba_conn" != "Never" ] && [ "$samba_epoch" -gt 0 ]; then
+            local now=$(date +%s)
+            local days_ago=$(( (now - samba_epoch) / 86400 ))
+            local hours_ago=$(( (now - samba_epoch) / 3600 ))
+            
+            echo "  Last SMB:        $samba_conn"
+            if [ $hours_ago -lt 24 ]; then
+                echo "                   ${hours_ago} hours ago"
+            else
+                echo "                   ${days_ago} days ago"
+            fi
+        else
+            echo "  Last SMB:        Never"
+        fi
     fi
     echo ""
     
