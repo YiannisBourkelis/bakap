@@ -952,9 +952,9 @@ list_users() {
             # Sum logical sizes of all snapshots
             while IFS= read -r snapshot; do
                 if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
-                    local snap_bytes=$(find "$snapshot" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
-                    if [ "$snap_bytes" -gt 0 ]; then
-                        local snap_mb=$(echo "scale=2; $snap_bytes / 1024 / 1024" | bc)
+                    # Calculate MB directly in awk to avoid scientific notation issues
+                    local snap_mb=$(find "$snapshot" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {printf "%.2f", sum/1024/1024}')
+                    if [ -n "$snap_mb" ] && [ "$snap_mb" != "0.00" ]; then
                         snapshots_logical=$(echo "$snapshots_logical + $snap_mb" | bc)
                     fi
                 fi
