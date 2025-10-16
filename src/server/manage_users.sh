@@ -1134,8 +1134,9 @@ info_user() {
     echo "Home: $home_dir"
     echo ""
     
-    # Build connection cache for lookups
+    # Build connection caches for lookups
     build_connection_cache
+    build_samba_connection_cache
     
     # Connection activity
     local conn_info=$(get_last_connection "$username")
