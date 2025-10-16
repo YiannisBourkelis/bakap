@@ -316,8 +316,8 @@ build_samba_connection_cache() {
         if [ "$use_journald" = true ]; then
             # Parse from journald (smbd logs with audit prefix)
             # Format: Oct 12 01:21:40 debmain smbd_audit[536369]: sambatest|94.69.215.1|myrsini-pc|close|ok|...
-            latest_line=$(journalctl --since "30 days ago" -u smbd --no-pager 2>/dev/null | \
-                grep "smbd_audit\[" | \
+            # Use SYSLOG_IDENTIFIER=smbd_audit to get VFS audit logs
+            latest_line=$(journalctl --since "30 days ago" SYSLOG_IDENTIFIER=smbd_audit --no-pager 2>/dev/null | \
                 grep ": $user|" | \
                 grep -E "connect|write|pwrite|close" | \
                 tail -1)
