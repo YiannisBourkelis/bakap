@@ -322,7 +322,11 @@ SMB2
 [Definition]
 # Match authentication failures with NT_STATUS errors
 # The IP is extracted from "remote host [ipv4:IP:port]" in the Auth line
-failregex = ^\[\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d+,\s*\d+\].*remote host \[ipv4:<HOST>:\d+\].*status \[NT_STATUS_(?:WRONG_PASSWORD|NO_SUCH_USER|LOGON_FAILURE|ACCESS_DENIED)\]
+# Log format: 
+#   [2025/10/16 18:45:37.752262,  2] ../../auth/auth_log.c:647(log_authentication_event_human_readable)
+#     Auth: [SMB2,(null)] user [...] status [NT_STATUS_NO_SUCH_USER] ... remote host [ipv4:202.61.225.34:44202]
+# Note: Auth line starts with spaces (continuation of previous line), not timestamp
+failregex = ^\s+Auth:.*status\s*\[NT_STATUS_(?:WRONG_PASSWORD|NO_SUCH_USER|LOGON_FAILURE|ACCESS_DENIED)\].*remote host \[ipv4:<HOST>:\d+\]
 
 # Ignore successful authentications
 ignoreregex = NT_STATUS_OK
