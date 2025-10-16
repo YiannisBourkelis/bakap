@@ -267,7 +267,9 @@ if [ "$ENABLE_SAMBA" = "true" ]; then
    syslog only = yes
    log file = /var/log/samba/log.%m
    max log size = 1000
-   log level = 3
+   # Log level 3 auth:5 ensures authentication failures are logged
+   # auth:5 = detailed authentication logging for fail2ban detection
+   log level = 3 auth:5
    
    # Performance
    socket options = TCP_NODELAY IPTOS_LOWDELAY SO_KEEPALIVE
@@ -318,12 +320,12 @@ SMB2
 # Authentication failures are logged to /var/log/samba/log.<ip> files
 
 [Definition]
-# Match authentication failures with error status
-# Extracts IP from Auth log line with remote host field and failure status
-failregex = ^\[\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d+,\s+\d\].*Auth:.*remote host \[ipv4:<HOST>:\d+\].*status \[NT_STATUS_(?:WRONG_PASSWORD|NO_SUCH_USER|LOGON_FAILURE|ACCESS_DENIED)\]
+# Match authentication failures with NT_STATUS errors
+# The IP is extracted from "remote host [ipv4:IP:port]" in the Auth line
+failregex = ^\[\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d+,\s*\d+\].*remote host \[ipv4:<HOST>:\d+\].*status \[NT_STATUS_(?:WRONG_PASSWORD|NO_SUCH_USER|LOGON_FAILURE|ACCESS_DENIED)\]
 
 # Ignore successful authentications
-ignoreregex =
+ignoreregex = NT_STATUS_OK
 FILTER
     echo "  - Created/updated fail2ban Samba filter"
     
@@ -335,8 +337,10 @@ FILTER
 enabled = true
 port = 445
 filter = bakap-samba
-logpath = /var/log/samba/log.smbd
-          /var/log/samba/log.*
+# Monitor per-IP log files - Samba logs to /var/log/samba/log.<ip>
+# Use polling backend to detect new log files created by new connections
+logpath = /var/log/samba/log.*[0-9]
+backend = polling
 maxretry = 5
 bantime = 3600
 findtime = 600
