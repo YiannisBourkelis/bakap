@@ -348,7 +348,7 @@ backend = polling
 maxretry = 5
 bantime = 3600
 findtime = 600
-banaction = nftables[type=multiport]
+banaction = nftables[type=multiport,chain_priority=-100]
 F2B
     echo "  - Created/updated fail2ban Samba jail configuration"
     
