@@ -108,10 +108,16 @@ EOF
    create mask = 0700
    directory mask = 0700
    valid users = $username
-   vfs objects = fruit streams_xattr
+   vfs objects = fruit streams_xattr full_audit
    fruit:aapl = yes
    fruit:time machine = yes
    fruit:time machine max size = 0
+   # VFS audit module for tracking Time Machine connections
+   full_audit:prefix = %u|%I|%m|timemachine
+   full_audit:success = connect disconnect open close write pwrite
+   full_audit:failure = connect
+   full_audit:facility = local1
+   full_audit:priority = notice
 EOF
     fi
     
