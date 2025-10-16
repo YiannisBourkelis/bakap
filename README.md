@@ -534,6 +534,76 @@ sudo ./src/server/manage_users.sh disable-samba-versions <username>
 4. User browses timestamped snapshots and restores needed files
 5. After recovery, admin disables access: `disable-samba-versions username`
 
+#### macOS Time Machine Support
+
+Bakap supports macOS Time Machine backups via Samba with automatic versioning using Btrfs snapshots.
+
+**Server Setup:**
+
+1. **Enable Samba during initial setup:**
+```bash
+sudo ./src/server/setup.sh --samba
+```
+
+2. **Create user with Time Machine support:**
+```bash
+# Option A: Create new user with Time Machine enabled
+sudo ./src/server/create_user.sh username --samba --timemachine
+
+# Option B: Enable Time Machine for existing user
+sudo ./src/server/manage_users.sh enable-samba username
+sudo ./src/server/manage_users.sh enable-timemachine username
+```
+
+**macOS Client Setup:**
+
+1. **Connect to the share in Finder first:**
+   - Open **Finder** → **Go** → **Connect to Server** (or press `Command+K`)
+   - Enter: `smb://<server-ip>/username-timemachine`
+     - Replace `<server-ip>` with your server's IP address or hostname
+     - Replace `username` with your actual username
+   - Click **Connect**
+   - Enter credentials:
+     - **Username**: `username`
+     - **Password**: Your Samba password
+   - The share will mount in Finder
+
+2. **Configure Time Machine:**
+   - Open **System Preferences** (or **System Settings** on newer macOS)
+   - Go to **Time Machine**
+   - Click **"+"** (Add Disk) or **"Select Disk"**
+   - Select `username-timemachine` from the list
+   - If prompted for credentials again, enter the same username/password
+   - Time Machine will start backing up automatically
+
+**How It Works:**
+- Time Machine writes backups to the `uploads` directory via Samba
+- Bakap's inotify monitoring service detects file changes automatically
+- Btrfs snapshots are created in real-time as Time Machine saves files
+- All snapshots are stored in the `versions` directory (root-owned, immutable)
+- Retention policies apply to Time Machine snapshots automatically
+- You can restore from any snapshot using `manage_users.sh restore`
+
+**Disable Time Machine:**
+```bash
+sudo ./src/server/manage_users.sh disable-timemachine username
+```
+
+**Important Notes:**
+- Time Machine requires Samba to be enabled (`--samba` flag during setup)
+- Uses VFS fruit module for full macOS compatibility
+- Snapshots are created automatically - no manual intervention needed
+- Time Machine backups coexist with regular SFTP uploads in the same directory
+- All Time Machine files are subject to the same Btrfs snapshot versioning
+- To browse snapshots, enable read-only SMB access: `enable-samba-versions username`
+
+**Troubleshooting:**
+- If Time Machine doesn't see the share, make sure you connected via Finder first
+- Check that the user has Time Machine enabled: `./manage_users.sh list`
+  - Should show: `SMBTM+SFTP` or `SMB*TM+SFTP` in the Protocol column
+- Verify Samba is running: `sudo systemctl status smbd`
+- Check Samba config: `sudo testparm -s | grep -A 10 "username-timemachine"`
+
 #### Retention Policy Configuration
 
 Edit `/etc/bakap-retention.conf` to customize snapshot retention:
