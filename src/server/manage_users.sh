@@ -1174,9 +1174,9 @@ info_user() {
             # Sum logical file sizes for all snapshots
             while IFS= read -r snapshot; do
                 if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
-                    local snapshot_bytes=$(find "$snapshot" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
-                    if [ "$snapshot_bytes" -gt 0 ]; then
-                        local snapshot_mb=$(echo "scale=2; $snapshot_bytes / 1024 / 1024" | bc)
+                    # Calculate MB directly in awk to avoid scientific notation issues
+                    local snapshot_mb=$(find "$snapshot" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {printf "%.2f", sum/1024/1024}')
+                    if [ -n "$snapshot_mb" ] && [ "$snapshot_mb" != "0.00" ]; then
                         total_logical_size=$(echo "$total_logical_size + $snapshot_mb" | bc)
                     fi
                 fi
