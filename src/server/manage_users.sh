@@ -173,10 +173,10 @@ get_apparent_size() {
     if [ -d "$path" ]; then
         # Sum all file sizes using stat (counts each directory entry, even hardlinks)
         local bytes=$(find "$path" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
-        if [ "$bytes" -eq 0 ]; then
+        # Convert bytes to MB with 2 decimal places (bc handles scientific notation)
+        if [ -z "$bytes" ] || [ "$bytes" = "0" ]; then
             echo "0.00"
         else
-            # Convert bytes to MB with 2 decimal places
             echo "scale=2; $bytes / 1024 / 1024" | bc
         fi
     else
