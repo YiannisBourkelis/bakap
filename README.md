@@ -716,6 +716,22 @@ sudo grep "Failed password" /var/log/auth.log | tail -20
 sudo grep "Connection closed by authenticating user" /var/log/auth.log | tail -20
 ```
 
+**View recent failed Samba authentication attempts:**
+```bash
+# Samba authentication failures are logged to separate log files
+# Find which log files contain authentication failures
+sudo find /var/log/samba/ -name "log.*" -exec grep -l "check_ntlm_password.*FAILED\|NT_STATUS_WRONG_PASSWORD\|NT_STATUS_LOGON_FAILURE" {} \;
+
+# View recent failures from all Samba log files
+sudo find /var/log/samba/ -name "log.*" -exec grep "check_ntlm_password.*FAILED with error NT_STATUS\|status \[NT_STATUS" {} \; | tail -10
+
+# Monitor all Samba logs for new authentication failures (real-time)
+sudo tail -f /var/log/samba/log.* 2>/dev/null | grep --line-buffered "check_ntlm_password.*FAILED with error NT_STATUS\|status \[NT_STATUS"
+
+# More generic monitoring for any Samba failures or errors
+sudo tail -f /var/log/samba/log.* 2>/dev/null | grep --line-buffered "FAILED\|NT_STATUS"
+```
+
 **Security configuration details:**
 - **Authentication failures**: 5 failed attempts within 10 minutes = 1 hour IP ban
 - **DOS protection**: 10 connection attempts within 60 seconds = 10 minute IP ban
