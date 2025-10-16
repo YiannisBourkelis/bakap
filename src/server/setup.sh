@@ -319,10 +319,8 @@ SMB2
 
 [Definition]
 # Match authentication failures with error status
-# Pattern 1: check_ntlm_password line with FAILED
-# Pattern 2: Auth log line with remote host IP and failure status
-failregex = ^\[\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d+,\s+\d\].*check_ntlm_password:\s+Authentication for user \[.*\] -> \[.*\] FAILED with error NT_STATUS.*
-            ^\[\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d+,\s+\d\].*Auth:.*remote host \[ipv4:<HOST>:\d+\].*status \[NT_STATUS_(?:WRONG_PASSWORD|NO_SUCH_USER|LOGON_FAILURE|ACCESS_DENIED)\]
+# Extracts IP from Auth log line with remote host field and failure status
+failregex = ^\[\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d+,\s+\d\].*Auth:.*remote host \[ipv4:<HOST>:\d+\].*status \[NT_STATUS_(?:WRONG_PASSWORD|NO_SUCH_USER|LOGON_FAILURE|ACCESS_DENIED)\]
 
 # Ignore successful authentications
 ignoreregex =
