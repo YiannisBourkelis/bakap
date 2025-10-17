@@ -9,7 +9,7 @@
 # https://github.com/YiannisBourkelis/bakap
 #
 # Requirements:
-#   - Debian 13 (Trixie) or later
+#   - Debian 12 or later
 #   - Btrfs filesystem for /home
 
 set -e

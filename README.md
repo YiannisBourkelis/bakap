@@ -32,7 +32,7 @@ This software is provided "as is", without warranty of any kind, express or impl
 ## Prerequisites
 
 ### Server Requirements
-- **Debian 13 (Trixie) or later** (requires Linux 6.x kernel for stable Btrfs support)
+- **Debian 12 (Bookworm) or later** (requires Linux 6.x kernel for stable Btrfs support)
 - **Btrfs filesystem for /home** (required for snapshot functionality)
 - Root or sudo access for setup
 - OpenSSH server (installed automatically by setup script)
