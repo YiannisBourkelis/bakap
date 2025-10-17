@@ -76,6 +76,16 @@ mount /dev/sdXY /home
 ## Installation
 
 ### Server Installation
+The recommended installation location depends on your use case:
+
+| Location | Best For | Notes |
+|----------|----------|-------|
+| **`/opt/bakap`** | **Production systems** | Standard location for third-party software. Root-owned, system-wide, survives user account changes. **This is the default for `setup-client.sh`.** |
+| `/usr/local/src/bakap` | Alternative production | Also system-wide and root-owned. Traditionally used for locally built software. |
+| `~/bakap` | Testing only | User-specific, deleted with user account. Not suitable for root cron jobs or production use. |
+
+**Recommendation:** Use `/opt/bakap` for all production client installations. This is where `setup-client.sh` clones the repository by default.
+
 1. Clone the repository:
    ```
    git clone https://github.com/YiannisBourkelis/bakap.git
@@ -117,18 +127,9 @@ mount /dev/sdXY /home
 Bakap includes cross-platform client scripts for easy file uploads:
 
 #### Linux Client (`src/client/linux/upload.sh`)
-
-#### Installation Location Recommendations
-
 The recommended installation location depends on your use case:
 
-| Location | Best For | Notes |
-|----------|----------|-------|
-| **`/opt/bakap`** | **Production systems** | Standard location for third-party software. Root-owned, system-wide, survives user account changes. **This is the default for `setup-client.sh`.** |
-| `/usr/local/src/bakap` | Alternative production | Also system-wide and root-owned. Traditionally used for locally built software. |
-| `~/bakap` | Testing only | User-specific, deleted with user account. Not suitable for root cron jobs or production use. |
-
-**Recommendation:** Use `/opt/bakap` for all production client installations. This is where `setup-client.sh` clones the repository by default.
+**Recommendation:** Use `/opt/bakap` for all production client installations.
 
 Bash script with lftp/sftp support and named parameters:
 ```bash
