@@ -911,7 +911,7 @@ The monitor uses **smart periodic snapshots** that exclude in-progress files:
 ```
 03:00:00 - Start uploading: file1.sql (10 MB) + file2.sql (50 MB)
 03:00:15 - Both files complete (all closed)
-03:00:45 - Immediate snapshot: includes BOTH files (no 60-second wait!)
+03:01:15 - Immediate snapshot: includes BOTH files (60-second wait completed!)
 ```
 
 **Scenario 2: Mixed upload (small + large files)**
@@ -1326,27 +1326,21 @@ sudo tail -f /var/log/backup_monitor.log
 # 2025-10-09 03:00:30 Activity for eventsaxd: waiting for interval or completion
 # 2025-10-09 03:30:30 Excluding in-progress files from snapshot:
 # 2025-10-09 03:30:30   Excluded: huge.tar.gz (387GB, still uploading)
-# 2025-10-09 03:30:31 Btrfs snapshot created for eventsaxd (periodic (1800s since last, 1 files still open), excluded 1 in-progress files)
 # 2025-10-09 04:00:30 Excluding in-progress files from snapshot:
 # 2025-10-09 04:00:30   Excluded: huge.tar.gz (465GB, still uploading)
-# 2025-10-09 04:00:31 Btrfs snapshot created for eventsaxd (periodic (1800s since last, 1 files still open), excluded 1 in-progress files)
 # 2025-10-09 04:15:00 huge.tar.gz upload completes
-# 2025-10-09 04:15:30 Btrfs snapshot created for eventsaxd (all files closed)
+# 2025-10-09 04:16:00 Btrfs snapshot created for eventsaxd (all files closed)
 
 # Example log output (quick upload - all files complete fast):
 # 2025-10-09 05:00:10 files.tar.gz upload completes
-# 2025-10-09 05:00:40 Btrfs snapshot created for eventsaxd (all files closed)
+# 2025-10-09 05:01:10 Btrfs snapshot created for eventsaxd (all files closed)
 # ↑ Immediate snapshot (no 30-minute wait!)
 ```
 
 **Verify excluded files:**
 ```bash
-# Check periodic snapshot (in-progress file excluded)
-ls -lh /home/user/versions/2025-10-09_03-30-31/
-# Shows: small.sql (10 MB), huge.tar.gz MISSING
-
 # Check final snapshot (all files present)
-ls -lh /home/user/versions/2025-10-09_04-15-25/
+ls -lh /home/user/versions/2025-10-09_04-16-00/
 # Shows: small.sql (10 MB), huge.tar.gz (500 GB)
 ```
 
