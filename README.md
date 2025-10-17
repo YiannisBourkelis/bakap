@@ -84,7 +84,7 @@ The recommended installation location depends on your use case:
 | `/usr/local/src/bakap` | Alternative production | Also system-wide and root-owned. Traditionally used for locally built software. |
 | `~/bakap` | Testing only | User-specific, deleted with user account. Not suitable for root cron jobs or production use. |
 
-**Recommendation:** Use `/opt/bakap` for all production client installations. This is where `setup-client.sh` clones the repository by default.
+**Recommendation:** Use `/opt/bakap` for all production client installations.
 
 1. Clone the repository:
    ```
