@@ -900,7 +900,7 @@ sudo ./manage_users.sh restore username 2025-10-14_12-47-05 /tmp/restore
 The monitor uses **smart periodic snapshots** that exclude in-progress files:
 
 **How it works:**
-1. **Immediate snapshot when all files complete**: No waiting - snapshot taken 30s after last file closes
+1. **Immediate snapshot when all files complete**: No waiting - snapshot taken 60s after last file closes
 2. **Periodic snapshots while uploading**: Takes snapshot every 30 minutes (default) if files are still open
 3. **Excludes in-progress files**: Only completed (closed) files are included in periodic snapshots
 4. **Efficient snapshot management**: Prevents excessive snapshot creation from frequent small file changes
@@ -911,7 +911,7 @@ The monitor uses **smart periodic snapshots** that exclude in-progress files:
 ```
 03:00:00 - Start uploading: file1.sql (10 MB) + file2.sql (50 MB)
 03:00:15 - Both files complete (all closed)
-03:00:45 - Immediate snapshot: includes BOTH files (no 30-minute wait!)
+03:00:45 - Immediate snapshot: includes BOTH files (no 60-second wait!)
 ```
 
 **Scenario 2: Mixed upload (small + large files)**
