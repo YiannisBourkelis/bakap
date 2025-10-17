@@ -207,6 +207,23 @@ FILTER
     echo "  - Created custom SFTP abuse filter"
 fi
 
+# Configure nftables action defaults (chain priority and blocktype)
+if [ ! -f /etc/fail2ban/action.d/nftables-common.local ]; then
+    cat > /etc/fail2ban/action.d/nftables-common.local <<'NFTCOMMON'
+# Bakap fail2ban nftables configuration
+# Override default nftables action parameters for better performance
+
+[Init]
+# Set chain priority to -100 (earlier in packet processing than default "filter - 1")
+# This ensures fail2ban rules are evaluated early for better performance
+chain_priority = -100
+
+# Use reject to send RST packets (faster connection failures for legitimate clients)
+blocktype = reject
+NFTCOMMON
+    echo "  - Created nftables-common.local configuration"
+fi
+
 # Enable and start fail2ban
 echo "Starting fail2ban service..."
 systemctl enable fail2ban
@@ -333,6 +350,30 @@ ignoreregex = NT_STATUS_OK
 FILTER
     echo "  - Created/updated fail2ban Samba filter"
     
+    # Create custom nftables action for Samba (without port filtering)
+    # This is needed because tcp dport filtering breaks nftables blocking for some reason
+    cat > /etc/fail2ban/action.d/nftables-bakap.conf <<'ACTION'
+# Fail2Ban nftables action for Samba - WITHOUT port filtering
+# This is a workaround for the issue where tcp dport filtering breaks blocking
+#
+# Based on nftables.conf but overrides to use simple IP-based blocking
+
+[INCLUDES]
+before = nftables.conf
+
+[Definition]
+
+# Force type to custom so we don't get port-based matching
+type = custom
+
+# Override match to be empty (no port/protocol filtering)
+rule_match-custom = 
+
+# Override rule_stat to use simple IP-based blocking
+rule_stat = <addr_family> saddr @<addr_set> <blocktype>
+ACTION
+    echo "  - Created custom nftables action for Samba"
+    
     # Configure fail2ban jail
     cat > /etc/fail2ban/jail.d/bakap-samba.conf <<F2B
 # Bakap fail2ban configuration for Samba protection
@@ -348,7 +389,7 @@ backend = polling
 maxretry = 5
 bantime = 3600
 findtime = 600
-banaction = nftables[type=multiport,chain_priority=-100]
+banaction = nftables-bakap
 F2B
     echo "  - Created/updated fail2ban Samba jail configuration"
     
