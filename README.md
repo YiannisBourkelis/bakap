@@ -107,8 +107,9 @@ The recommended installation location depends on your use case:
    **Security Features Enabled:**
    - fail2ban protection against brute force attacks
    - SSH/SFTP authentication monitoring (5 failed attempts = 1 hour ban)
+   - Samba authentication monitoring (5 failed attempts = 1 hour ban, when Samba is enabled)
    - DOS protection (10 connection attempts in 60s = 10 minute ban)
-   - IP blocking at firewall level (iptables)
+   - IP blocking at firewall level (nftables)
 
 5. Create backup users (run as root for each user):
    ```bash
