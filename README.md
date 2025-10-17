@@ -656,19 +656,6 @@ sudo systemctl status bakap-monitor.service
 sudo systemctl restart bakap-monitor.service
 ```
 
-**Update monitor service after git pull (applies new fixes/features):**
-```bash
-# Pull latest changes
-cd /opt/bakap
-git pull
-
-# Re-run setup to update monitor script
-sudo ./src/server/setup.sh
-
-# Restart service to apply changes
-sudo systemctl restart bakap-monitor.service
-```
-
 #### Security Monitoring (fail2ban)
 
 **Check fail2ban status:**
