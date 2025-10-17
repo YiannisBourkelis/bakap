@@ -94,11 +94,7 @@ The recommended installation location depends on your use case:
    ```
    cd bakap
    ```
-3. Make the scripts executable:
-   ```
-   chmod +x src/server/setup.sh src/server/create_user.sh src/server/delete_user.sh src/server/manage_users.sh
-   ```
-4. Run the setup script as root:
+3. Run the setup script as root:
    ```
    sudo ./src/server/setup.sh
    ```
