@@ -686,7 +686,8 @@ UNIT
 fi
 
 systemctl daemon-reload
-systemctl enable --now bakap-monitor.service
+systemctl enable bakap-monitor.service
+systemctl restart bakap-monitor.service
 
 # Tune inotify max_user_watches to support many users/directories
 if [ ! -f /etc/sysctl.d/99-bakap-inotify.conf ]; then
