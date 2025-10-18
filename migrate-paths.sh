@@ -5,7 +5,7 @@
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
-# https://github.com/YiannisBourkelis/termiNAS
+# https://github.com/YiannisBourkelis/terminas
 #
 # Old paths → New paths:
 #   /var/backups/scripts/ → /var/terminas/scripts/

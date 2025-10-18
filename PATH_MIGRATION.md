@@ -187,7 +187,7 @@ If you encounter issues:
 1. Check service status: `systemctl status terminas-monitor.service`
 2. Check logs: `journalctl -u terminas-monitor.service -n 50`
 3. Review backup directory for rollback option
-4. File an issue: https://github.com/YiannisBourkelis/termiNAS/issues
+4. File an issue: https://github.com/YiannisBourkelis/terminas/issues
 
 ---
 

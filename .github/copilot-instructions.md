@@ -103,7 +103,7 @@ Windows: C:\Program Files\terminas-backup\, C:\ProgramData\terminas-credentials\
 
 ### Version Control & Collaboration
 - **Git**: Source control and client auto-updates
-- **GitHub**: Repository hosting at YiannisBourkelis/termiNAS
+- **GitHub**: Repository hosting at YiannisBourkelis/terminas
 - **Markdown**: Documentation format
 
 ## Architecture and Design Patterns

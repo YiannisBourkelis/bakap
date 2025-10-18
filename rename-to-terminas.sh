@@ -19,7 +19,7 @@ echo "  - Config files: /etc/bakap-* → /etc/terminas-*"
 echo "  - Service names: bakap-monitor → terminas-monitor"
 echo "  - Log files: bakap-* → terminas-*"
 echo "  - Credential paths: .bakap-credentials → .terminas-credentials"
-echo "  - GitHub URLs: YiannisBourkelis/bakap → YiannisBourkelis/termiNAS"
+echo "  - GitHub URLs: YiannisBourkelis/bakap → YiannisBourkelis/terminas"
 echo ""
 read -p "Continue? (y/n): " confirm
 if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
@@ -43,7 +43,7 @@ replace_in_file() {
     
     # Perform replacements
     sed -i '' \
-        -e 's|YiannisBourkelis/bakap|YiannisBourkelis/termiNAS|g' \
+        -e 's|YiannisBourkelis/bakap|YiannisBourkelis/terminas|g' \
         -e 's|/opt/bakap|/opt/terminas|g' \
         -e 's|/usr/local/src/bakap|/usr/local/src/terminas|g' \
         -e 's|~/bakap|~/terminas|g' \

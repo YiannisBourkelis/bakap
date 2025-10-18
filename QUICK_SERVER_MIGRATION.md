@@ -10,7 +10,7 @@ ssh user@your-backup-server
 
 # 2. Download the migration script
 cd /tmp
-wget https://raw.githubusercontent.com/YiannisBourkelis/termiNAS/main/migrate-server.sh
+wget https://raw.githubusercontent.com/YiannisBourkelis/terminas/main/migrate-server.sh
 # OR: Copy the script from your local machine
 scp /Users/yiannis/Projects/termiNAS/migrate-server.sh user@your-server:/tmp/
 
@@ -50,7 +50,7 @@ systemctl stop bakap-monitor.service
 
 # === UPDATE GIT ===
 cd /opt/bakap
-git remote set-url origin https://github.com/YiannisBourkelis/termiNAS.git
+git remote set-url origin https://github.com/YiannisBourkelis/terminas.git
 git pull origin main
 
 # === RENAME CONFIGS ===
@@ -110,7 +110,7 @@ fail2ban-client status | grep terminas
 
 # 5. Verify git
 cd /opt/terminas && git remote -v
-# Should show: https://github.com/YiannisBourkelis/termiNAS.git
+# Should show: https://github.com/YiannisBourkelis/terminas.git
 
 # 6. Test SFTP connection
 sftp testuser@localhost

@@ -133,7 +133,7 @@ The recommended installation location depends on your use case:
 
 1. Clone the repository:
    ```
-   git clone https://github.com/YiannisBourkelis/termiNAS.git
+   git clone https://github.com/YiannisBourkelis/terminas.git
    ```
 2. Navigate to the project directory:
    ```

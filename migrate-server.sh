@@ -86,7 +86,7 @@ echo -e "${GREEN}✓ Service stopped${NC}"
 # Step 3: Update git repository
 echo -e "${CYAN}[3/15] Updating git repository${NC}"
 cd /opt/bakap
-git remote set-url origin https://github.com/YiannisBourkelis/termiNAS.git
+git remote set-url origin https://github.com/YiannisBourkelis/terminas.git
 git fetch origin
 git pull origin main
 echo -e "${GREEN}✓ Git repository updated${NC}"
@@ -270,7 +270,7 @@ echo -e "${CYAN}Backup location:${NC}"
 echo "  $BACKUP_DIR"
 echo ""
 echo -e "${CYAN}Git repository:${NC}"
-echo "  https://github.com/YiannisBourkelis/termiNAS"
+echo "  https://github.com/YiannisBourkelis/terminas"
 echo ""
 
 # Final verification

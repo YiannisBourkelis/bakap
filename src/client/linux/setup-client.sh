@@ -5,7 +5,7 @@
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
-# https://github.com/YiannisBourkelis/termiNAS
+# https://github.com/YiannisBourkelis/terminas
 
 set -e
 
@@ -57,7 +57,7 @@ fi
 print_header "termiNAS Client Setup"
 echo "This script will help you configure automated daily backups."
 echo "Copyright (c) 2025 Yianni Bourkelis"
-echo "https://github.com/YiannisBourkelis/termiNAS"
+echo "https://github.com/YiannisBourkelis/terminas"
 echo ""
 
 # Gather information from user
@@ -201,7 +201,7 @@ cat > "$BACKUP_SCRIPT" <<EOF
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
-# https://github.com/YiannisBourkelis/termiNAS
+# https://github.com/YiannisBourkelis/terminas
 
 LOG_FILE="/var/log/terminas-${BACKUP_NAME}.log"
 UPLOAD_SCRIPT="$UPLOAD_SCRIPT"

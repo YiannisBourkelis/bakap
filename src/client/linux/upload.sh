@@ -3,7 +3,7 @@
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
-# https://github.com/YiannisBourkelis/termiNAS
+# https://github.com/YiannisBourkelis/terminas
 
 set -euo pipefail
 
@@ -11,7 +11,7 @@ usage() {
         cat <<EOF
 termiNAS Linux Upload Client
 Copyright (c) 2025 Yianni Bourkelis
-https://github.com/YiannisBourkelis/termiNAS
+https://github.com/YiannisBourkelis/terminas
 
 Usage: $0 -l <local-path> -u <username> -p <password> -s <server> [OPTIONS]
 

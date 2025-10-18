@@ -6,7 +6,7 @@
   termiNAS Windows Client Setup
   Copyright (c) 2025 Yianni Bourkelis
   Licensed under the MIT License - see LICENSE file for details
-  https://github.com/YiannisBourkelis/termiNAS
+  https://github.com/YiannisBourkelis/terminas
   
   Compatible with Windows Server 2008 R2 and later (PowerShell 2.0+).
   Creates a scheduled task to run daily backups using upload.ps1.

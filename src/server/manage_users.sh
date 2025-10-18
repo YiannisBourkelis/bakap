@@ -5,7 +5,7 @@
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
-# https://github.com/YiannisBourkelis/termiNAS
+# https://github.com/YiannisBourkelis/terminas
 
 set -e
 
@@ -15,7 +15,7 @@ usage() {
     cat <<EOF
 termiNAS User Management Tool
 Copyright (c) 2025 Yianni Bourkelis
-https://github.com/YiannisBourkelis/termiNAS
+https://github.com/YiannisBourkelis/terminas
 
 Usage: $SCRIPT_NAME <command> [options]
 
