@@ -14,6 +14,12 @@ Key features:
 - **Ransomware protection** via immutable read-only Btrfs snapshots (cannot be modified even by root without explicit command).
 - **Strict access control**: Users cannot access anything outside their home folder.
 - **Superior storage efficiency**: Block-level copy-on-write (only changed blocks consume space).
+- **Terminal-based administration**: Lightweight command-line management with no GUI overhead. Benefits include:
+  - Minimal resource usage (no web server or desktop environment required)
+  - Remote administration via SSH from any device
+  - Perfect for headless servers and low-power ARM devices
+  - Script-friendly automation and integration with monitoring tools
+  - Faster workflow for experienced administrators
 
 ## Use Cases
 
