@@ -7,13 +7,17 @@
 > **Not recommended for production use without thorough testing in your specific environment.**
 
 ## Overview
-Bakap is a secure, versioned backup server for Debian Linux using **Btrfs copy-on-write snapshots**. It allows remote clients to upload files via SFTP, storing them in user-specific folders with real-time incremental versioning for ransomware protection. Even if a client's local machine is infected, the server-side version history remains intact and unmodifiable. Clients can download previous versions of their files. Users are strictly chrooted to their home directories for security.
+Bakap is a secure, versioned storage server for Debian Linux using **Btrfs copy-on-write snapshots**. It functions as both a backup server (via SFTP) and a NAS (via optional SMB support), providing real-time incremental versioning for ransomware protection. Even if a client's local machine is infected, the server-side version history remains intact and unmodifiable. Users are strictly chrooted to their home directories for security.
 
 Key features:
 - **Instant Btrfs snapshots** triggered by filesystem changes (millisecond creation time).
 - **Ransomware protection** via immutable read-only Btrfs snapshots (cannot be modified even by root without explicit command).
 - **Strict access control**: Users cannot access anything outside their home folder.
 - **Superior storage efficiency**: Block-level copy-on-write (only changed blocks consume space).
+
+## Use Cases
+
+Clients can upload files via SFTP for automated backups, or access shared folders via SMB for general file storage. macOS users can use it as a Time Machine backup target with automatic versioning benefits.
 
 ## ⚠️ Disclaimer
 
