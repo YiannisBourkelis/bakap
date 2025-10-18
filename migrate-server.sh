@@ -109,15 +109,47 @@ sed -i 's/Bakap/termiNAS/g' /etc/systemd/system/terminas-monitor.service
 systemctl daemon-reload
 echo -e "${GREEN}✓ Service renamed${NC}"
 
-# Step 6: Update monitor scripts
-echo -e "${CYAN}[6/15] Updating monitor scripts${NC}"
-sed -i 's/bakap/terminas/g' /var/backups/scripts/monitor_backups.sh
-sed -i 's/BAKAP/TERMINAS/g' /var/backups/scripts/monitor_backups.sh
-sed -i 's/Bakap/termiNAS/g' /var/backups/scripts/monitor_backups.sh
-sed -i 's/bakap/terminas/g' /var/backups/scripts/cleanup_snapshots.sh
-sed -i 's/BAKAP/TERMINAS/g' /var/backups/scripts/cleanup_snapshots.sh
-sed -i 's/Bakap/termiNAS/g' /var/backups/scripts/cleanup_snapshots.sh
-echo -e "${GREEN}✓ Scripts updated${NC}"
+# Step 6: Update and migrate monitor scripts
+echo -e "${CYAN}[6/15] Updating and migrating monitor scripts${NC}"
+
+# Create new directory structure
+mkdir -p /var/terminas/scripts
+
+# Migrate and rename scripts
+if [ -f /var/backups/scripts/monitor_backups.sh ]; then
+    # Update content then move with new name
+    sed -i 's/bakap/terminas/g' /var/backups/scripts/monitor_backups.sh
+    sed -i 's/BAKAP/TERMINAS/g' /var/backups/scripts/monitor_backups.sh
+    sed -i 's/Bakap/termiNAS/g' /var/backups/scripts/monitor_backups.sh
+    sed -i 's/backup_monitor\.log/terminas.log/g' /var/backups/scripts/monitor_backups.sh
+    mv /var/backups/scripts/monitor_backups.sh /var/terminas/scripts/terminas-monitor.sh
+    chmod +x /var/terminas/scripts/terminas-monitor.sh
+    echo "  - Migrated: monitor_backups.sh → terminas-monitor.sh"
+fi
+
+if [ -f /var/backups/scripts/cleanup_snapshots.sh ]; then
+    sed -i 's/bakap/terminas/g' /var/backups/scripts/cleanup_snapshots.sh
+    sed -i 's/BAKAP/TERMINAS/g' /var/backups/scripts/cleanup_snapshots.sh
+    sed -i 's/Bakap/termiNAS/g' /var/backups/scripts/cleanup_snapshots.sh
+    sed -i 's/backup_monitor\.log/terminas.log/g' /var/backups/scripts/cleanup_snapshots.sh
+    mv /var/backups/scripts/cleanup_snapshots.sh /var/terminas/scripts/terminas-cleanup.sh
+    chmod +x /var/terminas/scripts/terminas-cleanup.sh
+    echo "  - Migrated: cleanup_snapshots.sh → terminas-cleanup.sh"
+fi
+
+# Update systemd service to use new script path
+sed -i 's|/var/backups/scripts/monitor_backups.sh|/var/terminas/scripts/terminas-monitor.sh|g' \
+    /etc/systemd/system/terminas-monitor.service
+
+# Update crontab for cleanup script
+if crontab -l 2>/dev/null | grep -q "cleanup_snapshots.sh"; then
+    crontab -l 2>/dev/null | \
+        sed 's|/var/backups/scripts/cleanup_snapshots.sh|/var/terminas/scripts/terminas-cleanup.sh|g' | \
+        crontab -
+    echo "  - Updated crontab to use terminas-cleanup.sh"
+fi
+
+echo -e "${GREEN}✓ Scripts migrated to /var/terminas/scripts/${NC}"
 
 # Step 7: Rename runtime directories
 echo -e "${CYAN}[7/15] Renaming runtime directories${NC}"
@@ -130,12 +162,32 @@ chmod 755 /var/run/terminas
 echo -e "${GREEN}✓ Runtime directories updated${NC}"
 
 # Step 8: Update log configuration
-echo -e "${CYAN}[8/15] Updating log configuration${NC}"
-if [ -f /etc/logrotate.d/bakap-monitor ]; then
-    mv /etc/logrotate.d/bakap-monitor /etc/logrotate.d/terminas-monitor
-    sed -i 's/bakap/terminas/g' /etc/logrotate.d/terminas-monitor
-    echo -e "${GREEN}✓ Logrotate config updated${NC}"
+echo -e "${CYAN}[8/15] Migrating log files and configuration${NC}"
+
+# Migrate log file
+if [ -f /var/log/backup_monitor.log ]; then
+    cp /var/log/backup_monitor.log /var/log/terminas.log
+    chown root:adm /var/log/terminas.log 2>/dev/null || true
+    chmod 640 /var/log/terminas.log 2>/dev/null || true
+    echo "  - Migrated: backup_monitor.log → terminas.log"
 fi
+
+# Update logrotate config with new name and path
+if [ -f /etc/logrotate.d/bakap-monitor ]; then
+    cat > /etc/logrotate.d/terminas <<'LR'
+/var/log/terminas.log {
+    weekly
+    rotate 12
+    compress
+    missingok
+    notifempty
+    create 640 root adm
+}
+LR
+    echo "  - Created: /etc/logrotate.d/terminas"
+fi
+
+echo -e "${GREEN}✓ Logs migrated to /var/log/terminas.log${NC}"
 
 # Step 9: Update inotify configuration
 echo -e "${CYAN}[9/15] Updating inotify configuration${NC}"
@@ -211,7 +263,7 @@ echo "==================================================${NC}"
 echo ""
 echo -e "${CYAN}Verification:${NC}"
 echo "  Service status: systemctl status terminas-monitor.service"
-echo "  View logs:      tail -f /var/log/backup_monitor.log"
+echo "  View logs:      tail -f /var/log/terminas.log"
 echo "  List users:     /opt/terminas/src/server/manage_users.sh list"
 echo ""
 echo -e "${CYAN}Backup location:${NC}"

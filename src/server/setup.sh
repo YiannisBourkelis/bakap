@@ -417,7 +417,7 @@ fi
 
 # Create base directories
 echo "Creating base directories..."
-mkdir -p /var/backups/scripts
+mkdir -p /var/terminas/scripts
 
 # Create monitor script for real-time incremental snapshots
 echo "Creating/updating monitor script..."
@@ -433,7 +433,7 @@ else
     TERMINAS_VERSION="non-git"
 fi
 
-cat > /var/backups/scripts/monitor_backups.sh <<EOF
+cat > /var/terminas/scripts/terminas-monitor.sh <<EOF
 #!/bin/bash
 # Real-time monitor script for user backups
 # Watches /home and filters events under uploads/ so new users/uploads are picked up even after start
@@ -446,7 +446,7 @@ cat > /var/backups/scripts/monitor_backups.sh <<EOF
 # Version: $TERMINAS_VERSION
 # Commit: $TERMINAS_COMMIT
 
-LOG=/var/log/backup_monitor.log
+LOG=/var/log/terminas.log
 mkdir -p "\$(dirname "\$LOG")"
 touch "\$LOG"
 chown root:adm "\$LOG" 2>/dev/null || true
@@ -522,7 +522,7 @@ while read path event; do
             continue
         else
             # Stale lock file from crashed/killed process, remove it
-            echo "\$(date '+%Y-%m-%d %H:%M:%S') Removing stale lock file for user \$user (PID \$old_pid no longer exists)" >> /var/log/backup_monitor.log
+            echo "\$(date '+%Y-%m-%d %H:%M:%S') Removing stale lock file for user \$user (PID \$old_pid no longer exists)" >> /var/log/terminas.log
             rm -f "\$processing_file"
         fi
     fi
@@ -641,7 +641,7 @@ while read path event; do
 done
 EOF
 
-chmod +x /var/backups/scripts/monitor_backups.sh
+chmod +x /var/terminas/scripts/terminas-monitor.sh
 
 # Create systemd unit for the monitor (preserve Environment variables if service exists)
 echo "Installing systemd unit for backup monitor..."
@@ -655,7 +655,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash /var/backups/scripts/monitor_backups.sh
+ExecStart=/bin/bash /var/terminas/scripts/terminas-monitor.sh
 Restart=on-failure
 RestartSec=5
 
@@ -676,7 +676,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash /var/backups/scripts/monitor_backups.sh
+ExecStart=/bin/bash /var/terminas/scripts/terminas-monitor.sh
 Restart=on-failure
 RestartSec=5
 
@@ -698,8 +698,8 @@ fi
 
 # Add logrotate config for the monitor log
 echo "Configuring log rotation..."
-cat > /etc/logrotate.d/terminas-monitor <<'LR'
-/var/log/backup_monitor.log {
+cat > /etc/logrotate.d/terminas <<'LR'
+/var/log/terminas.log {
     weekly
     rotate 12
     compress
@@ -748,7 +748,7 @@ fi
 
 # Create/update cleanup script with configurable retention
 echo "Creating/updating cleanup script..."
-cat > /var/backups/scripts/cleanup_snapshots.sh <<'EOF'
+cat > /var/terminas/scripts/terminas-cleanup.sh <<'EOF'
 #!/bin/bash
 # Cleanup old snapshots based on retention policy
 # Configuration: /etc/terminas-retention.conf
@@ -766,7 +766,7 @@ else
     ENABLE_ADVANCED_RETENTION=false
 fi
 
-LOG=/var/log/backup_monitor.log
+LOG=/var/log/terminas.log
 
 log_msg() {
     echo "$(date '+%F %T') [CLEANUP] $*" >> "$LOG"
@@ -891,12 +891,12 @@ fi
 
 log_msg "Cleanup completed"
 EOF
-chmod +x /var/backups/scripts/cleanup_snapshots.sh
+chmod +x /var/terminas/scripts/terminas-cleanup.sh
 
 # Install daily cron job for cleanup (run at configured hour) - only if not already present
-if ! crontab -l 2>/dev/null | grep -q "cleanup_snapshots.sh"; then
+if ! crontab -l 2>/dev/null | grep -q "terminas-cleanup.sh"; then
     echo "Installing cleanup cron job..."
-    (crontab -l 2>/dev/null; echo "0 3 * * * /var/backups/scripts/cleanup_snapshots.sh") | crontab -
+    (crontab -l 2>/dev/null; echo "0 3 * * * /var/terminas/scripts/terminas-cleanup.sh") | crontab -
 else
     echo "Cleanup cron job already exists"
 fi
@@ -908,12 +908,13 @@ echo "=========================================="
 echo ""
 echo "Next steps:"
 echo "  1. Create backup users: ./create_user.sh <username>"
-echo "  2. Monitor logs: tail -f /var/log/backup_monitor.log"
+echo "  2. Monitor logs: tail -f /var/log/terminas.log"
 echo "  3. Check service: systemctl status terminas-monitor.service"
 echo "  4. Manage users: ./manage_users.sh list"
 echo ""
 echo "Configuration files:"
 echo "  - Retention policy: /etc/terminas-retention.conf"
 echo "  - Monitor service: /etc/systemd/system/terminas-monitor.service"
-echo "  - Scripts: /var/backups/scripts/"
+echo "  - Scripts: /var/terminas/scripts/"
+echo "  - Log file: /var/log/terminas.log"
 echo ""
