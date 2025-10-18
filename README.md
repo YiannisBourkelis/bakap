@@ -17,7 +17,42 @@ Key features:
 
 ## Use Cases
 
-Clients can upload files via SFTP for automated backups, or access shared folders via SMB for general file storage. macOS users can use it as a Time Machine backup target with automatic versioning benefits.
+Bakap is flexible — use it wherever you need server-side, versioned, immutable protection for files. Typical uses include:
+
+1. Backup target for your OS or favourite backup software
+   - Use SFTP to push backups from Windows, Linux or other OS backup tools (Duplicati, Veeam agents, rsync-based scripts, Borg, etc.).
+   - Server-side Btrfs snapshots provide point-in-time versions without requiring special client-side behaviour.
+
+2. macOS Time Machine target (per-user)
+   - Expose a per-user Time Machine share via Samba (VFS fruit). Each macOS device can have its own user/Timemachine share for isolated backups.
+   - Time Machine writes are captured by inotify and turned into immutable Btrfs snapshots for easy restores.
+
+3. Samba network share for file sharing
+   - Use the `uploads` SMB share for day-to-day file storage and collaboration between multiple machines.
+   - Administrators can optionally expose the `versions` directory as a read-only SMB share for disaster recovery (one-command enable/disable).
+
+4. Low-power / ARM-based deployments (Raspberry Pi, small servers)
+   - Run bakap on resource-efficient ARM hardware for home labs or remote sites; ideal when combined with USB-attached storage.
+   - Keep an eye on I/O and storage (Btrfs works on ARM but performance depends on media and CPU). Use the retention settings to control disk usage.
+
+Additional targets and audiences
+
+- System administrators
+  - Centralise backups from many hosts (servers, workstations) with consistent retention policies and audit logging.
+  - Integrate with monitoring/automation (Ansible, cron) to orchestrate restores and snapshot lifecycle.
+
+- Power users / Desktop users
+  - Keep per-user version history for documents, photos and project files without changing your normal workflow — use SFTP, SMB or Time Machine as you prefer.
+  - Quick restores via SFTP/WinSCP or admin-enabled SMB versions share.
+
+- Homelab owners
+  - Use bakap as a compact, immutable backup target for VMs, containers and services in your homelab.
+  - Snapshot-based rollbacks make testing and experimenting safe — restore a known-good state quickly.
+
+- Remote/edge backups
+  - Deploy small bakap instances at remote sites to collect local backups and optionally replicate critical snapshots to a central server.
+
+All of the above benefit from server-side immutable, root-owned snapshots. Clients decide how they use the share (backup target vs general file server) while bakap ensures version history and ransomware protection are preserved.
 
 ## ⚠️ Disclaimer
 
