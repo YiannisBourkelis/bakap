@@ -1,13 +1,13 @@
-# bakap Project
+# termiNAS
 
 > **⚠️ EXPERIMENTAL SOFTWARE - USE WITH CAUTION**
 >
-> Bakap is currently in **experimental/alpha stage**. While it has been tested in development environments, it has not yet been extensively tested in production scenarios. Use at your own risk and **always maintain independent backups** of your critical data. The software may contain bugs, and breaking changes may occur in future releases.
+> termiNAS is currently in **experimental/alpha stage**. While it has been tested in development environments, it has not yet been extensively tested in production scenarios. Use at your own risk and **always maintain independent backups** of your critical data. The software may contain bugs, and breaking changes may occur in future releases.
 >
 > **Not recommended for production use without thorough testing in your specific environment.**
 
 ## Overview
-Bakap is a secure, versioned storage server for Debian Linux using **Btrfs copy-on-write snapshots**. It functions as both a backup server (via SFTP) and a NAS (via optional SMB support), providing real-time incremental versioning for ransomware protection. Even if a client's local machine is infected, the server-side version history remains intact and unmodifiable. Users are strictly chrooted to their home directories for security.
+termiNAS is a secure, versioned storage server for Debian Linux using **Btrfs copy-on-write snapshots**. It functions as both a backup server (via SFTP) and a NAS (via optional SMB support), providing real-time incremental versioning for ransomware protection. Even if a client's local machine is infected, the server-side version history remains intact and unmodifiable. Users are strictly chrooted to their home directories for security.
 
 Key features:
 - **Instant Btrfs snapshots** triggered by filesystem changes (millisecond creation time).
@@ -17,7 +17,7 @@ Key features:
 
 ## Use Cases
 
-Bakap is flexible — use it wherever you need server-side, versioned, immutable protection for files. Typical uses include:
+termiNAS is flexible — use it wherever you need server-side, versioned, immutable protection for files. Typical uses include:
 
 1. Backup target for your OS or favourite backup software
    - Use SFTP to push backups from Windows, Linux or other OS backup tools (Duplicati, Veeam agents, rsync-based scripts, Borg, etc.).
@@ -32,7 +32,7 @@ Bakap is flexible — use it wherever you need server-side, versioned, immutable
    - Administrators can optionally expose the `versions` directory as a read-only SMB share for disaster recovery (one-command enable/disable).
 
 4. Low-power / ARM-based deployments (Raspberry Pi, small servers)
-   - Run bakap on resource-efficient ARM hardware for home labs or remote sites; ideal when combined with USB-attached storage.
+   - Run termiNAS on resource-efficient ARM hardware for home labs or remote sites; ideal when combined with USB-attached storage.
    - Keep an eye on I/O and storage (Btrfs works on ARM but performance depends on media and CPU). Use the retention settings to control disk usage.
 
 Additional targets and audiences
@@ -46,13 +46,13 @@ Additional targets and audiences
   - Quick restores via SFTP/WinSCP or admin-enabled SMB versions share.
 
 - Homelab owners
-  - Use bakap as a compact, immutable backup target for VMs, containers and services in your homelab.
+  - Use termiNAS as a compact, immutable backup target for VMs, containers and services in your homelab.
   - Snapshot-based rollbacks make testing and experimenting safe — restore a known-good state quickly.
 
 - Remote/edge backups
-  - Deploy small bakap instances at remote sites to collect local backups and optionally replicate critical snapshots to a central server.
+  - Deploy small termiNAS instances at remote sites to collect local backups and optionally replicate critical snapshots to a central server.
 
-All of the above benefit from server-side immutable, root-owned snapshots. Clients decide how they use the share (backup target vs general file server) while bakap ensures version history and ransomware protection are preserved.
+All of the above benefit from server-side immutable, root-owned snapshots. Clients decide how they use the share (backup target vs general file server) while termiNAS ensures version history and ransomware protection are preserved.
 
 ## ⚠️ Disclaimer
 
@@ -119,19 +119,19 @@ The recommended installation location depends on your use case:
 
 | Location | Best For | Notes |
 |----------|----------|-------|
-| **`/opt/bakap`** | **Production systems** | Standard location for third-party software. Root-owned, system-wide, survives user account changes. |
-| `/usr/local/src/bakap` | Alternative production | Also system-wide and root-owned. Traditionally used for locally built software. |
-| `~/bakap` | Testing only | User-specific, deleted with user account. Not suitable for root cron jobs or production use. |
+| **`/opt/terminas`** | **Production systems** | Standard location for third-party software. Root-owned, system-wide, survives user account changes. |
+| `/usr/local/src/terminas` | Alternative production | Also system-wide and root-owned. Traditionally used for locally built software. |
+| `~/terminas` | Testing only | User-specific, deleted with user account. Not suitable for root cron jobs or production use. |
 
-**Recommendation:** Use `/opt/bakap` for all production client installations.
+**Recommendation:** Use `/opt/terminas` for all production client installations.
 
 1. Clone the repository:
    ```
-   git clone https://github.com/YiannisBourkelis/bakap.git
+   git clone https://github.com/YiannisBourkelis/termiNAS.git
    ```
 2. Navigate to the project directory:
    ```
-   cd bakap
+   cd termiNAS
    ```
 3. Run the setup script as root:
    ```
@@ -160,12 +160,12 @@ The recommended installation location depends on your use case:
 
 ### Client Upload Scripts
 
-Bakap includes cross-platform client scripts for easy file uploads:
+termiNAS includes cross-platform client scripts for easy file uploads:
 
 #### Linux Client (`src/client/linux/upload.sh`)
 The recommended installation location depends on your use case:
 
-**Recommendation:** Use `/opt/bakap` for all production client installations.
+**Recommendation:** Use `/opt/terminas` for all production client installations.
 
 Bash script with lftp/sftp support and named parameters:
 ```bash
@@ -209,8 +209,8 @@ sudo ./src/client/linux/setup-client.sh
 
 **What it does:**
 - Interactively prompts for backup configuration (path, server, credentials, schedule)
-- Creates secure credentials file in `/root/.bakap-credentials/` (mode 600)
-- Generates backup script in `/usr/local/bin/bakap-backup/`
+- Creates secure credentials file in `/root/.terminas-credentials/` (mode 600)
+- Generates backup script in `/usr/local/bin/terminas-backup/`
 - Configures log rotation for backup logs
 - Adds cron job for automated daily backups
 - Validates all settings and offers immediate test run
@@ -218,7 +218,7 @@ sudo ./src/client/linux/setup-client.sh
 **Example Session:**
 ```
 ==========================================
-Bakap Client Setup
+termiNAS Client Setup
 ==========================================
 This script will help you configure automated daily backups.
 
@@ -248,10 +248,10 @@ Is this correct? (y/n): y
 ==========================================
 Installing Backup Configuration
 ==========================================
-✓ Created scripts directory: /usr/local/bin/bakap-backup
-✓ Created secure credentials file: /root/.bakap-credentials/web1-production.conf
-✓ Created backup script: /usr/local/bin/bakap-backup/backup-web1-production.sh
-✓ Created log rotation config: /etc/logrotate.d/bakap-web1-production
+✓ Created scripts directory: /usr/local/bin/terminas-backup
+✓ Created secure credentials file: /root/.terminas-credentials/web1-production.conf
+✓ Created backup script: /usr/local/bin/terminas-backup/backup-web1-production.sh
+✓ Created log rotation config: /etc/logrotate.d/terminas-web1-production
 ✓ Added cron job to run daily at 01:00
 ✓ lftp is installed
 
@@ -262,14 +262,14 @@ Setup Complete!
 ✓ Backup job 'web1-production' has been configured successfully!
 
 ℹ Configuration details:
-  • Backup script:    /usr/local/bin/bakap-backup/backup-web1-production.sh
-  • Credentials:      /root/.bakap-credentials/web1-production.conf
-  • Log file:         /var/log/bakap-web1-production.log
+  • Backup script:    /usr/local/bin/terminas-backup/backup-web1-production.sh
+  • Credentials:      /root/.terminas-credentials/web1-production.conf
+  • Log file:         /var/log/terminas-web1-production.log
   • Schedule:         Daily at 01:00
 
 ℹ Useful commands:
-  • Test backup now:      /usr/local/bin/bakap-backup/backup-web1-production.sh
-  • View logs:            tail -f /var/log/bakap-web1-production.log
+  • Test backup now:      /usr/local/bin/terminas-backup/backup-web1-production.sh
+  • View logs:            tail -f /var/log/terminas-web1-production.log
   • List cron jobs:       crontab -l
   • Edit cron schedule:   crontab -e
 
@@ -278,20 +278,20 @@ Would you like to test the backup now? (y/n):
 
 **What gets created:**
 ```
-/usr/local/bin/bakap-backup/
+/usr/local/bin/terminas-backup/
   └── backup-web1-production.sh        # Backup script
 
-/root/.bakap-credentials/
+/root/.terminas-credentials/
   └── web1-production.conf             # Secure credentials (mode 600)
 
 /etc/logrotate.d/
-  └── bakap-web1-production            # Log rotation config
+  └── terminas-web1-production            # Log rotation config
 
 /var/log/
-  └── bakap-web1-production.log        # Backup logs
+  └── terminas-web1-production.log        # Backup logs
 
 Cron job:
-  0 1 * * * /usr/local/bin/bakap-backup/backup-web1-production.sh
+  0 1 * * * /usr/local/bin/terminas-backup/backup-web1-production.sh
 ```
 
 **Multiple backup jobs:** Run the script multiple times to configure different backup jobs (e.g., web1, database, documents). Each gets its own script, credentials, logs, and schedule.
@@ -335,22 +335,22 @@ Interactive setup script that configures automated daily backups for Windows cli
 
 ```powershell
 # Run PowerShell as Administrator, then:
-cd path\to\bakap\src\client\windows
+cd path\to\termiNAS\src\client\windows
 .\setup-client.ps1
 ```
 
 **What it does:**
 - Interactively prompts for backup configuration (path, server, credentials, schedule)
 - Locates or prompts for path to `upload.ps1` script
-- Creates secure credentials file in `C:\ProgramData\bakap-credentials\` (restricted to Administrators)
-- Generates backup script in `C:\Program Files\bakap-backup\`
+- Creates secure credentials file in `C:\ProgramData\terminas-credentials\` (restricted to Administrators)
+- Generates backup script in `C:\Program Files\terminas-backup\`
 - Creates Windows Scheduled Task for daily automated backups
 - Validates all settings and offers immediate test run
 
 **Example Session:**
 ```
 ==========================================
-Bakap Windows Client Setup
+termiNAS Windows Client Setup
 ==========================================
 This script will help you configure automated daily backups.
 
@@ -364,9 +364,9 @@ Confirm SFTP password: ********
 Enter the destination path on server (default: /uploads): /uploads
 Enter the backup time (HH:MM format, e.g., 02:00): 03:00
 Enter a name for this backup job (alphanumeric, no spaces): web-backup
-Found upload.ps1 at: C:\bakap\src\client\windows\upload.ps1
+Found upload.ps1 at: C:\termiNAS\src\client\windows\upload.ps1
 Use this location? (y/n): y
-[OK] Using upload script: C:\bakap\src\client\windows\upload.ps1
+[OK] Using upload script: C:\termiNAS\src\client\windows\upload.ps1
 
 ==========================================
 Configuration Summary
@@ -383,12 +383,12 @@ Is this correct? (y/n): y
 ==========================================
 Installing Backup Configuration
 ==========================================
-[OK] Created directory: C:\Program Files\bakap-backup
-[OK] Created directory: C:\ProgramData\bakap-credentials
-[OK] Created directory: C:\ProgramData\bakap-logs
-[OK] Created secure credentials file: C:\ProgramData\bakap-credentials\web-backup.xml
-[OK] Created backup script: C:\Program Files\bakap-backup\backup-web-backup.ps1
-[OK] Created scheduled task: Bakap-Backup-web-backup
+[OK] Created directory: C:\Program Files\terminas-backup
+[OK] Created directory: C:\ProgramData\terminas-credentials
+[OK] Created directory: C:\ProgramData\terminas-logs
+[OK] Created secure credentials file: C:\ProgramData\terminas-credentials\web-backup.xml
+[OK] Created backup script: C:\Program Files\terminas-backup\backup-web-backup.ps1
+[OK] Created scheduled task: termiNAS-Backup-web-backup
 [OK] WinSCP found
 
 ==========================================
@@ -398,34 +398,34 @@ Setup Complete!
 Backup job 'web-backup' has been configured successfully!
 
 Configuration details:
-  - Backup script:    C:\Program Files\bakap-backup\backup-web-backup.ps1
-  - Credentials:      C:\ProgramData\bakap-credentials\web-backup.xml
-  - Log file:         C:\ProgramData\bakap-logs\bakap-web-backup.log
+  - Backup script:    C:\Program Files\terminas-backup\backup-web-backup.ps1
+  - Credentials:      C:\ProgramData\terminas-credentials\web-backup.xml
+  - Log file:         C:\ProgramData\terminas-logs\terminas-web-backup.log
   - Schedule:         Daily at 03:00
 
 Useful commands:
-  - Test backup now:      PowerShell.exe -ExecutionPolicy Bypass -File "C:\Program Files\bakap-backup\backup-web-backup.ps1"
-  - View logs:            Get-Content "C:\ProgramData\bakap-logs\bakap-web-backup.log" -Tail 50
-  - View scheduled task:  Get-ScheduledTask -TaskName 'Bakap-Backup-web-backup'
-  - Run task manually:    Start-ScheduledTask -TaskName 'Bakap-Backup-web-backup'
-  - Disable task:         Disable-ScheduledTask -TaskName 'Bakap-Backup-web-backup'
+  - Test backup now:      PowerShell.exe -ExecutionPolicy Bypass -File "C:\Program Files\terminas-backup\backup-web-backup.ps1"
+  - View logs:            Get-Content "C:\ProgramData\terminas-logs\terminas-web-backup.log" -Tail 50
+  - View scheduled task:  Get-ScheduledTask -TaskName 'termiNAS-Backup-web-backup'
+  - Run task manually:    Start-ScheduledTask -TaskName 'termiNAS-Backup-web-backup'
+  - Disable task:         Disable-ScheduledTask -TaskName 'termiNAS-Backup-web-backup'
 
 Would you like to test the backup now? (y/n):
 ```
 
 **What gets created:**
 ```
-C:\Program Files\bakap-backup\
+C:\Program Files\terminas-backup\
   └── backup-web-backup.ps1            # Backup script
 
-C:\ProgramData\bakap-credentials\
+C:\ProgramData\terminas-credentials\
   └── web-backup.xml                   # Secure credentials (Administrators only)
 
-C:\ProgramData\bakap-logs\
-  └── bakap-web-backup.log             # Backup logs
+C:\ProgramData\terminas-logs\
+  └── terminas-web-backup.log             # Backup logs
 
 Windows Scheduled Task:
-  Name: Bakap-Backup-web-backup
+  Name: termiNAS-Backup-web-backup
   Runs as: NT AUTHORITY\SYSTEM
   Schedule: Daily at 03:00
 ```
@@ -573,7 +573,7 @@ sudo ./src/server/manage_users.sh disable-samba-versions <username>
 
 #### macOS Time Machine Support
 
-Bakap supports macOS Time Machine backups via Samba with automatic versioning using Btrfs snapshots.
+termiNAS supports macOS Time Machine backups via Samba with automatic versioning using Btrfs snapshots.
 
 **Server Setup:**
 
@@ -615,7 +615,7 @@ sudo ./src/server/manage_users.sh enable-timemachine username
 
 **How It Works:**
 - Time Machine writes backups to the `uploads` directory via Samba
-- Bakap's inotify monitoring service detects file changes automatically
+- termiNAS's inotify monitoring service detects file changes automatically
 - Btrfs snapshots are created in real-time as Time Machine saves files
 - All snapshots are stored in the `versions` directory (root-owned, immutable)
 - Retention policies apply to Time Machine snapshots automatically
@@ -643,7 +643,7 @@ sudo ./src/server/manage_users.sh disable-timemachine username
 
 #### Retention Policy Configuration
 
-Edit `/etc/bakap-retention.conf` to customize snapshot retention:
+Edit `/etc/terminas-retention.conf` to customize snapshot retention:
 
 **Advanced Retention (Default - Grandfather-Father-Son):**
 ```bash
@@ -687,12 +687,12 @@ sudo tail -f /var/log/backup_monitor.log
 
 **Check monitor service status:**
 ```bash
-sudo systemctl status bakap-monitor.service
+sudo systemctl status terminas-monitor.service
 ```
 
 **Restart monitor service:**
 ```bash
-sudo systemctl restart bakap-monitor.service
+sudo systemctl restart terminas-monitor.service
 ```
 
 #### Security Monitoring (fail2ban)
@@ -964,14 +964,14 @@ The monitor uses **smart periodic snapshots** that exclude in-progress files:
 04:15:30 - Final snapshot: includes BOTH small.sql + huge.tar.gz (immediate!)
 ```
 
-**Configuration** (edit `/etc/systemd/system/bakap-monitor.service`):
+**Configuration** (edit `/etc/systemd/system/terminas-monitor.service`):
 
 ```bash
-sudo nano /etc/systemd/system/bakap-monitor.service
+sudo nano /etc/systemd/system/terminas-monitor.service
 
 # Add to [Service] section:
-Environment="BAKAP_INACTIVITY_WINDOW=60"    # Wait for 60s of inactivity before snapshot (default)
-Environment="BAKAP_SNAPSHOT_INTERVAL=1800"  # Max wait time: force snapshot after 30 min (default)
+Environment="TERMINAS_INACTIVITY_WINDOW=60"    # Wait for 60s of inactivity before snapshot (default)
+Environment="TERMINAS_SNAPSHOT_INTERVAL=1800"  # Max wait time: force snapshot after 30 min (default)
 ```
 
 **Behavior Summary:**
@@ -995,7 +995,7 @@ Environment="BAKAP_SNAPSHOT_INTERVAL=1800"  # Max wait time: force snapshot afte
 After changes:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl restart bakap-monitor.service
+sudo systemctl restart terminas-monitor.service
 ```
 
 **Benefits:**
@@ -1070,7 +1070,7 @@ Basic (WinSCP in PATH):
 ```powershell
 # Method 1: Using PowerShell cmdlets (Windows Server 2012+, recommended)
 $action = New-ScheduledTaskAction -Execute "PowerShell.exe" `
-    -Argument "-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password 'SecurePass123!' -Server backup.example.com -DestPath uploads"
+    -Argument "-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File C:\termiNAS\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password 'SecurePass123!' -Server backup.example.com -DestPath uploads"
 
 $trigger = New-ScheduledTaskTrigger -Daily -At 2:00AM
 
@@ -1080,19 +1080,19 @@ $settings = New-ScheduledTaskSettingsSet `
     -DontStopIfGoingOnBatteries `
     -RunOnlyIfNetworkAvailable
 
-Register-ScheduledTask -TaskName "Bakap-Daily-Backup" `
+Register-ScheduledTask -TaskName "termiNAS-Daily-Backup" `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
     -User "NT AUTHORITY\SYSTEM" `
     -RunLevel Highest `
-    -Description "Daily backup to bakap server"
+    -Description "Daily backup to termiNAS server"
 ```
 
 With custom WinSCP path and host key verification:
 ```powershell
 $action = New-ScheduledTaskAction -Execute "PowerShell.exe" `
-    -Argument "-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password 'SecurePass123!' -Server backup.example.com -DestPath uploads -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com' -ExpectedHostFingerprint 'ssh-ed25519 255 AAAA...'"
+    -Argument "-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File C:\termiNAS\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password 'SecurePass123!' -Server backup.example.com -DestPath uploads -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com' -ExpectedHostFingerprint 'ssh-ed25519 255 AAAA...'"
 
 $trigger = New-ScheduledTaskTrigger -Daily -At 2:00AM
 
@@ -1102,30 +1102,30 @@ $settings = New-ScheduledTaskSettingsSet `
     -DontStopIfGoingOnBatteries `
     -RunOnlyIfNetworkAvailable
 
-Register-ScheduledTask -TaskName "Bakap-Daily-Backup" `
+Register-ScheduledTask -TaskName "termiNAS-Daily-Backup" `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
     -User "NT AUTHORITY\SYSTEM" `
     -RunLevel Highest `
-    -Description "Daily backup to bakap server"
+    -Description "Daily backup to termiNAS server"
 ```
 
 **Windows - Task Scheduler (GUI method for older systems):**
 1. Open **Task Scheduler** (`taskschd.msc`)
 2. Click **Create Basic Task** in the right panel
-3. Name: "Bakap Daily Backup", click **Next**
+3. Name: "termiNAS Daily Backup", click **Next**
 4. Trigger: Select **Daily**, click **Next**
 5. Start time: Set your desired backup time (e.g., 2:00 AM), click **Next**
 6. Action: Select **Start a program**, click **Next**
 7. Program/script: `PowerShell.exe`
 8. Add arguments (basic - WinSCP in PATH):
    ```
-   -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "C:\bakap\src\client\windows\upload.ps1" -LocalPath "C:\Data" -Username "backupuser" -Password "SecurePass123!" -Server "backup.example.com" -DestPath "uploads"
+   -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "C:\termiNAS\src\client\windows\upload.ps1" -LocalPath "C:\Data" -Username "backupuser" -Password "SecurePass123!" -Server "backup.example.com" -DestPath "uploads"
    ```
    **Or with custom WinSCP path and host key verification:**
    ```
-   -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "C:\bakap\src\client\windows\upload.ps1" -LocalPath "C:\Data" -Username "backupuser" -Password "SecurePass123!" -Server "backup.example.com" -DestPath "uploads" -WinSCPPath "C:\Program Files\WinSCP\WinSCP.com" -ExpectedHostFingerprint "ssh-ed25519 255 AAAA..."
+   -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "C:\termiNAS\src\client\windows\upload.ps1" -LocalPath "C:\Data" -Username "backupuser" -Password "SecurePass123!" -Server "backup.example.com" -DestPath "uploads" -WinSCPPath "C:\Program Files\WinSCP\WinSCP.com" -ExpectedHostFingerprint "ssh-ed25519 255 AAAA..."
    ```
 9. Click **Next**, then **Finish**
 10. Right-click the task, select **Properties**
@@ -1142,12 +1142,12 @@ Register-ScheduledTask -TaskName "Bakap-Daily-Backup" `
 
 Basic (WinSCP in PATH):
 ```cmd
-schtasks /Create /SC DAILY /TN "Bakap-Daily-Backup" /TR "PowerShell.exe -ExecutionPolicy Bypass -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password SecurePass123! -Server backup.example.com -DestPath uploads" /ST 02:00 /RU SYSTEM /RL HIGHEST
+schtasks /Create /SC DAILY /TN "termiNAS-Daily-Backup" /TR "PowerShell.exe -ExecutionPolicy Bypass -File C:\termiNAS\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password SecurePass123! -Server backup.example.com -DestPath uploads" /ST 02:00 /RU SYSTEM /RL HIGHEST
 ```
 
 With custom WinSCP path and host key verification:
 ```cmd
-schtasks /Create /SC DAILY /TN "Bakap-Daily-Backup" /TR "PowerShell.exe -ExecutionPolicy Bypass -File C:\bakap\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password SecurePass123! -Server backup.example.com -DestPath uploads -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com' -ExpectedHostFingerprint 'ssh-ed25519 255 AAAA...'" /ST 02:00 /RU SYSTEM /RL HIGHEST
+schtasks /Create /SC DAILY /TN "termiNAS-Daily-Backup" /TR "PowerShell.exe -ExecutionPolicy Bypass -File C:\termiNAS\src\client\windows\upload.ps1 -LocalPath C:\Data -Username backupuser -Password SecurePass123! -Server backup.example.com -DestPath uploads -WinSCPPath 'C:\Program Files\WinSCP\WinSCP.com' -ExpectedHostFingerprint 'ssh-ed25519 255 AAAA...'" /ST 02:00 /RU SYSTEM /RL HIGHEST
 ```
 
 **Linux - Cron Job:**
@@ -1156,11 +1156,11 @@ schtasks /Create /SC DAILY /TN "Bakap-Daily-Backup" /TR "PowerShell.exe -Executi
 sudo crontab -e
 
 # Add this line to run backup daily at 2:00 AM
-0 2 * * * /opt/bakap/src/client/linux/upload.sh -l /var/data -u backupuser -p "SecurePass123!" -s backup.example.com -d /uploads >> /var/log/bakap-backup.log 2>&1
+0 2 * * * /opt/terminas/src/client/linux/upload.sh -l /var/data -u backupuser -p "SecurePass123!" -s backup.example.com -d /uploads >> /var/log/terminas-backup.log 2>&1
 
 # Optional: Add log rotation
-# Create /etc/logrotate.d/bakap-backup with:
-/var/log/bakap-backup.log {
+# Create /etc/logrotate.d/terminas-backup with:
+/var/log/terminas-backup.log {
     daily
     rotate 7
     compress
@@ -1191,15 +1191,15 @@ sudo crontab -e
 **Security Notes:**
 - For production use, avoid embedding passwords in command lines (visible in process lists)
 - Use the automated setup scripts which store credentials securely
-- On Windows: Credentials stored in `C:\ProgramData\bakap-credentials\` (restricted to Administrators)
-- On Linux: Credentials stored in `/root/.bakap-credentials/` (mode 600)
+- On Windows: Credentials stored in `C:\ProgramData\terminas-credentials\` (restricted to Administrators)
+- On Linux: Credentials stored in `/root/.terminas-credentials/` (mode 600)
 
 **Host Key Verification (TOFU - Trust On First Use):**
-- First connection: Script accepts any host key and caches fingerprint in `%LOCALAPPDATA%\bakap\hostkeys\`
+- First connection: Script accepts any host key and caches fingerprint in `%LOCALAPPDATA%\terminas\hostkeys\`
 - Subsequent connections: Script verifies server fingerprint against cached value
 - Cache location depends on user running the task:
-  - `NT AUTHORITY\SYSTEM` (recommended): `C:\Windows\System32\config\systemprofile\AppData\Local\bakap\`
-  - Admin user: `C:\Users\<username>\AppData\Local\bakap\`
+  - `NT AUTHORITY\SYSTEM` (recommended): `C:\Windows\System32\config\systemprofile\AppData\Local\terminas\`
+  - Admin user: `C:\Users\<username>\AppData\Local\terminas\`
 - If server key changes (e.g., server reinstall), task will fail with exit code 6
 - To reset trust: Delete the cached fingerprint file and let the script recapture it
 - For paranoid security: Manually provide `-ExpectedHostFingerprint` parameter to bypass TOFU
@@ -1221,7 +1221,7 @@ To modify or extend the scripts:
 - `src/client/linux/upload.sh` - Linux Bash upload client
 - `/var/backups/scripts/monitor_backups.sh` - Real-time snapshot monitor (created by setup)
 - `/var/backups/scripts/cleanup_snapshots.sh` - Retention policy cleanup (created by setup)
-- `/etc/bakap-retention.conf` - Retention configuration (created by setup)
+- `/etc/terminas-retention.conf` - Retention configuration (created by setup)
 
 ## Troubleshooting
 
@@ -1236,7 +1236,7 @@ Possible causes:
 Solutions:
 ```powershell
 # Option 1: Enable debug mode and check logs
-Get-Content "C:\ProgramData\bakap-logs\bakap-<jobname>.log" -Tail 100
+Get-Content "C:\ProgramData\terminas-logs\bakap-<jobname>.log" -Tail 100
 
 # Option 2: Manually provide the expected fingerprint
 # Get fingerprint from server:
@@ -1252,7 +1252,7 @@ This is expected behavior! The cached fingerprint no longer matches.
 Solution:
 ```powershell
 # Delete cached fingerprint to re-establish trust
-Remove-Item "C:\Windows\System32\config\systemprofile\AppData\Local\bakap\hostkeys\backup.example.com.txt"
+Remove-Item "C:\Windows\System32\config\systemprofile\AppData\Local\terminas\hostkeys\backup.example.com.txt"
 
 # Next scheduled run will accept new key and cache it
 ```
@@ -1271,16 +1271,16 @@ Mitigation:
 Verify:
 ```powershell
 # Check task configuration
-Get-ScheduledTask -TaskName "Bakap-Backup-<jobname>" | Format-List *
+Get-ScheduledTask -TaskName "termiNAS-Backup-<jobname>" | Format-List *
 
 # Check task trigger
-Get-ScheduledTask -TaskName "Bakap-Backup-<jobname>" | Select-Object -ExpandProperty Triggers
+Get-ScheduledTask -TaskName "termiNAS-Backup-<jobname>" | Select-Object -ExpandProperty Triggers
 
 # Manually trigger task to test
-Start-ScheduledTask -TaskName "Bakap-Backup-<jobname>"
+Start-ScheduledTask -TaskName "termiNAS-Backup-<jobname>"
 
 # Check execution history
-Get-ScheduledTask -TaskName "Bakap-Backup-<jobname>" | Get-ScheduledTaskInfo
+Get-ScheduledTask -TaskName "termiNAS-Backup-<jobname>" | Get-ScheduledTaskInfo
 ```
 
 ### Linux Client Issues
@@ -1339,14 +1339,14 @@ ignoreip = 127.0.0.1/8 ::1 192.168.1.0/24 10.0.0.0/8
 Update your installation:
 ```bash
 # Pull latest fix
-cd /opt/bakap
+cd /opt/terminas
 git pull
 
 # Re-run setup to update monitor script
 sudo ./src/server/setup.sh
 
 # Restart service
-sudo systemctl restart bakap-monitor.service
+sudo systemctl restart terminas-monitor.service
 
 # Verify new logic is applied
 sudo grep "Excluding in-progress" /var/backups/scripts/monitor_backups.sh
@@ -1395,16 +1395,16 @@ diff -r /home/eventsaxd/versions/2025-10-09_03-00-08 \
 
 ### For very large files (500+ GB):
 
-The monitor automatically handles files of any size by waiting until they're fully closed. However, if uploads take longer than 10 minutes (default `BAKAP_MAX_WAIT=600`), increase the timeout:
+The monitor automatically handles files of any size by waiting until they're fully closed. However, if uploads take longer than 10 minutes (default `TERMINAS_MAX_WAIT=600`), increase the timeout:
 
 ```bash
-sudo nano /etc/systemd/system/bakap-monitor.service
+sudo nano /etc/systemd/system/terminas-monitor.service
 
 # Add to [Service] section:
-Environment="BAKAP_MAX_WAIT=1800"  # 30 minutes for very slow uploads
+Environment="TERMINAS_MAX_WAIT=1800"  # 30 minutes for very slow uploads
 
 sudo systemctl daemon-reload
-sudo systemctl restart bakap-monitor.service
+sudo systemctl restart terminas-monitor.service
 ```
 
 **Best practices:**
@@ -1417,8 +1417,8 @@ sudo systemctl restart bakap-monitor.service
 
 Check monitor service:
 ```bash
-sudo systemctl status bakap-monitor.service
-sudo journalctl -u bakap-monitor.service -f
+sudo systemctl status terminas-monitor.service
+sudo journalctl -u terminas-monitor.service -f
 ```
 
 Check inotify limits:
@@ -1442,7 +1442,7 @@ Manually trigger cleanup:
 sudo /var/backups/scripts/cleanup_snapshots.sh
 ```
 
-Adjust retention policy in `/etc/bakap-retention.conf`:
+Adjust retention policy in `/etc/terminas-retention.conf`:
 ```bash
 # Reduce retention for all users
 KEEP_DAILY=3

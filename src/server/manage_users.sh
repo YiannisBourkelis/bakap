@@ -5,7 +5,7 @@
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
-# https://github.com/YiannisBourkelis/bakap
+# https://github.com/YiannisBourkelis/termiNAS
 
 set -e
 
@@ -13,9 +13,9 @@ SCRIPT_NAME=$(basename "$0")
 
 usage() {
     cat <<EOF
-Bakap User Management Tool
+termiNAS User Management Tool
 Copyright (c) 2025 Yianni Bourkelis
-https://github.com/YiannisBourkelis/bakap
+https://github.com/YiannisBourkelis/termiNAS
 
 Usage: $SCRIPT_NAME <command> [options]
 
@@ -799,7 +799,7 @@ EOF
     echo "   - Select '${username}-timemachine' from the list"
     echo "   - Time Machine will now use this network share for backups"
     echo ""
-    echo "Note: Bakap's monitoring service will automatically create snapshots"
+    echo "Note: termiNAS's monitoring service will automatically create snapshots"
     echo "      when Time Machine writes files to the uploads directory."
 }
 
@@ -1346,8 +1346,8 @@ info_user() {
     echo ""
     
     # Retention policy (if custom)
-    if [ -f /etc/bakap-retention.conf ]; then
-        source /etc/bakap-retention.conf
+    if [ -f /etc/terminas-retention.conf ]; then
+        source /etc/terminas-retention.conf
         local has_custom=false
         
         local user_daily_var="${username}_KEEP_DAILY"
@@ -1369,7 +1369,7 @@ info_user() {
             [ -n "${!user_monthly_var}" ] && echo "  Keep monthly: ${!user_monthly_var}"
             [ -n "${!user_retention_var}" ] && echo "  Retention days: ${!user_retention_var}"
         else
-            echo "Retention Policy: Default (from /etc/bakap-retention.conf)"
+            echo "Retention Policy: Default (from /etc/terminas-retention.conf)"
         fi
     fi
 }
@@ -1721,7 +1721,7 @@ delete_user() {
     fi
     
     # Remove any runtime files
-    rm -f "/var/run/bakap/last_$username" 2>/dev/null || true
+    rm -f "/var/run/terminas/last_$username" 2>/dev/null || true
     
     echo "User '$username' and all their data have been deleted."
 }

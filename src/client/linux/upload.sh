@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# upload.sh - simple client uploader for bakap
+# upload.sh - simple client uploader for termiNAS
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
-# https://github.com/YiannisBourkelis/bakap
+# https://github.com/YiannisBourkelis/termiNAS
 
 set -euo pipefail
 
 usage() {
         cat <<EOF
-Bakap Linux Upload Client
+termiNAS Linux Upload Client
 Copyright (c) 2025 Yianni Bourkelis
-https://github.com/YiannisBourkelis/bakap
+https://github.com/YiannisBourkelis/termiNAS
 
 Usage: $0 -l <local-path> -u <username> -p <password> -s <server> [OPTIONS]
 
-This script uploads a file or directory to the bakap server.
+This script uploads a file or directory to the termiNAS server.
 It prefers lftp (shows progress). If lftp is not installed it falls back to sshpass+sftp.
 
 Required arguments:
@@ -116,7 +116,7 @@ fi
 
 # If debugging enabled, prepare a debug output file
 if [ "$DEBUG" -eq 1 ]; then
-    DEBUG_OUT="/tmp/bakap-upload-debug-$(date +%s).log"
+    DEBUG_OUT="/tmp/terminas-upload-debug-$(date +%s).log"
     echo "Debug mode: raw lftp output will be saved to $DEBUG_OUT"
     : >"$DEBUG_OUT" || true
 fi

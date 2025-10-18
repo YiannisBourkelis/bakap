@@ -5,7 +5,7 @@
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
-# https://github.com/YiannisBourkelis/bakap
+# https://github.com/YiannisBourkelis/termiNAS
 
 set -e
 
@@ -103,9 +103,9 @@ if [ -d "/home/$USERNAME" ]; then
 fi
 
 # Remove any runtime files
-rm -f "/var/run/bakap/last_$USERNAME" 2>/dev/null || true
-rm -f "/var/run/bakap/activity_$USERNAME" 2>/dev/null || true
-rm -f "/var/run/bakap/snapshot_$USERNAME" 2>/dev/null || true
-rm -f "/var/run/bakap/processing_$USERNAME" 2>/dev/null || true
+rm -f "/var/run/terminas/last_$USERNAME" 2>/dev/null || true
+rm -f "/var/run/terminas/activity_$USERNAME" 2>/dev/null || true
+rm -f "/var/run/terminas/snapshot_$USERNAME" 2>/dev/null || true
+rm -f "/var/run/terminas/processing_$USERNAME" 2>/dev/null || true
 
 echo "User $USERNAME and all their data have been deleted."

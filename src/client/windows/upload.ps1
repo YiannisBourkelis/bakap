@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-  Upload a file or directory to the bakap SFTP server (Windows client).
+  Upload a file or directory to the termiNAS SFTP server (Windows client).
 
 .DESCRIPTION
-  Bakap Windows Upload Client
+  termiNAS Windows Upload Client
   Copyright (c) 2025 Yianni Bourkelis
   Licensed under the MIT License - see LICENSE file for details
-  https://github.com/YiannisBourkelis/bakap
+  https://github.com/YiannisBourkelis/termiNAS
   
   Compatible with Windows Server 2008 R2 and later (PowerShell 2.0+).
   Requires WinSCP (WinSCP.com) for SFTP transfers with synchronization support.
@@ -66,12 +66,12 @@ if ([string]::IsNullOrEmpty($DestPath) -or [string]::IsNullOrEmpty($DestPath.Tri
 
 # Set up logging and cache directory in LocalAppData
 # This prevents files from appearing in git status if script is run from repo
-$bakapDataDir = Join-Path $env:LOCALAPPDATA "bakap"
-if (-not (Test-Path $bakapDataDir)) {
-    New-Item -ItemType Directory -Path $bakapDataDir -Force | Out-Null
+$terminasDataDir = Join-Path $env:LOCALAPPDATA "bakap"
+if (-not (Test-Path $terminasDataDir)) {
+    New-Item -ItemType Directory -Path $terminasDataDir -Force | Out-Null
 }
-$logFile = Join-Path $bakapDataDir "upload_log.txt"
-$hostKeyCacheDir = Join-Path $bakapDataDir "hostkeys"
+$logFile = Join-Path $terminasDataDir "upload_log.txt"
+$hostKeyCacheDir = Join-Path $terminasDataDir "hostkeys"
 $hostKeyCacheFile = Join-Path $hostKeyCacheDir "$Server.txt"
 $ErrorActionPreference = "Continue"
 

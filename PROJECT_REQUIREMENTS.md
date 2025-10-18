@@ -1,4 +1,4 @@
-# Project Requirements: Bakap Backup Server
+# Project Requirements: termiNAS Backup Server
 
 ## Original User Requirements
 "create a script that will ran in debian and will setup the following: I want remote clients to be able to upload files or directories using scp or sftp. The server, will store the files to the user specific folder with versioning for ransomware protection. Even if the user machine is infected with malware and the malware encryptes or deletes files localy, it should not be able to modify the verion info of the file. The client can download a versioned copy of the files. Create a script thet will setup in debian such an environment and Create a script that will accept a user name and will create this user with a long secure default password. After that the user should be able to upload files securely with versioning support."

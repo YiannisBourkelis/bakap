@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # setup-client.sh - Interactive setup for automated daily backups
-# This script configures a Linux client to automatically backup files to a bakap server
+# This script configures a Linux client to automatically backup files to a termiNAS server
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
-# https://github.com/YiannisBourkelis/bakap
+# https://github.com/YiannisBourkelis/termiNAS
 
 set -e
 
@@ -54,10 +54,10 @@ if [ ! -f "$UPLOAD_SCRIPT" ]; then
     exit 1
 fi
 
-print_header "Bakap Client Setup"
+print_header "termiNAS Client Setup"
 echo "This script will help you configure automated daily backups."
 echo "Copyright (c) 2025 Yianni Bourkelis"
-echo "https://github.com/YiannisBourkelis/bakap"
+echo "https://github.com/YiannisBourkelis/termiNAS"
 echo ""
 
 # Gather information from user
@@ -169,19 +169,19 @@ echo ""
 print_header "Installing Backup Configuration"
 
 # Create backup scripts directory
-SCRIPTS_DIR="/usr/local/bin/bakap-backup"
+SCRIPTS_DIR="/usr/local/bin/terminas-backup"
 mkdir -p "$SCRIPTS_DIR"
 print_success "Created scripts directory: $SCRIPTS_DIR"
 
 # Create credentials directory
-CREDS_DIR="/root/.bakap-credentials"
+CREDS_DIR="/root/.terminas-credentials"
 CREDS_FILE="$CREDS_DIR/${BACKUP_NAME}.conf"
 mkdir -p "$CREDS_DIR"
 chmod 700 "$CREDS_DIR"
 
 # Write credentials file
 cat > "$CREDS_FILE" <<EOF
-# Bakap backup credentials for: $BACKUP_NAME
+# termiNAS backup credentials for: $BACKUP_NAME
 # Generated on: $(date '+%Y-%m-%d %H:%M:%S')
 # Copyright (c) 2025 Yianni Bourkelis
 
@@ -201,9 +201,9 @@ cat > "$BACKUP_SCRIPT" <<EOF
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
-# https://github.com/YiannisBourkelis/bakap
+# https://github.com/YiannisBourkelis/termiNAS
 
-LOG_FILE="/var/log/bakap-${BACKUP_NAME}.log"
+LOG_FILE="/var/log/terminas-${BACKUP_NAME}.log"
 UPLOAD_SCRIPT="$UPLOAD_SCRIPT"
 CREDS_FILE="$CREDS_FILE"
 LOCAL_PATH="$LOCAL_PATH"
@@ -255,9 +255,9 @@ chmod +x "$BACKUP_SCRIPT"
 print_success "Created backup script: $BACKUP_SCRIPT"
 
 # Create logrotate configuration
-LOGROTATE_FILE="/etc/logrotate.d/bakap-${BACKUP_NAME}"
+LOGROTATE_FILE="/etc/logrotate.d/terminas-${BACKUP_NAME}"
 cat > "$LOGROTATE_FILE" <<EOF
-/var/log/bakap-${BACKUP_NAME}.log {
+/var/log/terminas-${BACKUP_NAME}.log {
     weekly
     rotate 12
     compress
@@ -270,7 +270,7 @@ print_success "Created log rotation config: $LOGROTATE_FILE"
 
 # Add cron job
 CRON_JOB="$BACKUP_MINUTE $BACKUP_HOUR * * * $BACKUP_SCRIPT"
-CRON_COMMENT="# Bakap automated backup: $BACKUP_NAME"
+CRON_COMMENT="# termiNAS automated backup: $BACKUP_NAME"
 
 # Check if cron job already exists
 if crontab -l 2>/dev/null | grep -q "$BACKUP_SCRIPT"; then
@@ -317,12 +317,12 @@ echo ""
 print_info "Configuration details:"
 echo "  • Backup script:    $BACKUP_SCRIPT"
 echo "  • Credentials:      $CREDS_FILE"
-echo "  • Log file:         /var/log/bakap-${BACKUP_NAME}.log"
+echo "  • Log file:         /var/log/terminas-${BACKUP_NAME}.log"
 echo "  • Schedule:         Daily at $BACKUP_TIME"
 echo ""
 print_info "Useful commands:"
 echo "  • Test backup now:      $BACKUP_SCRIPT"
-echo "  • View logs:            tail -f /var/log/bakap-${BACKUP_NAME}.log"
+echo "  • View logs:            tail -f /var/log/terminas-${BACKUP_NAME}.log"
 echo "  • List cron jobs:       crontab -l"
 echo "  • Edit cron schedule:   crontab -e"
 echo ""
@@ -336,10 +336,10 @@ if [[ "$TEST_NOW" =~ ^[Yy]$ ]]; then
     if [ $? -eq 0 ]; then
         print_success "Test backup completed successfully!"
         echo ""
-        print_info "You can view the full log at: /var/log/bakap-${BACKUP_NAME}.log"
+        print_info "You can view the full log at: /var/log/terminas-${BACKUP_NAME}.log"
     else
         print_error "Test backup failed. Check the log for details:"
-        echo "  tail -100 /var/log/bakap-${BACKUP_NAME}.log"
+        echo "  tail -100 /var/log/terminas-${BACKUP_NAME}.log"
     fi
 else
     print_info "You can test the backup manually later by running:"

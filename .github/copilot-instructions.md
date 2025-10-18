@@ -1,8 +1,8 @@
-# Bakap Project - Custom Instructions
+# termiNAS Project - Custom Instructions
 
 ## Project Overview
 
-Bakap is a secure, versioned backup server for Debian Linux that provides ransomware protection through real-time incremental snapshots. The system allows remote clients (Windows/Linux) to upload files via SFTP, with server-side automatic versioning that prevents client-side malware from corrupting or deleting backup history.
+termiNAS is a secure, versioned backup server for Debian Linux that provides ransomware protection through real-time incremental snapshots. The system allows remote clients (Windows/Linux) to upload files via SFTP, with server-side automatic versioning that prevents client-side malware from corrupting or deleting backup history.
 
 **Key Principle**: Server-side immutability - clients can upload files, but cannot modify or delete version history stored in root-owned snapshots.
 
@@ -60,7 +60,7 @@ Server Runtime Files (created by setup.sh):
 /etc/
 ├── bakap-retention.conf        # Retention policy configuration
 └── systemd/system/
-    └── bakap-monitor.service   # systemd service for monitoring
+    └── terminas-monitor.service   # systemd service for monitoring
 
 /home/<username>/               # Per-user backup structure
 ├── uploads/                    # Writable upload directory (user:backupusers, 700)
@@ -69,8 +69,8 @@ Server Runtime Files (created by setup.sh):
     └── ...
 
 Client Runtime Files:
-Linux: /usr/local/bin/bakap-backup/, /root/.bakap-credentials/, /var/log/
-Windows: C:\Program Files\bakap-backup\, C:\ProgramData\bakap-credentials\, C:\ProgramData\bakap-logs\
+Linux: /usr/local/bin/terminas-backup/, /root/.terminas-credentials/, /var/log/
+Windows: C:\Program Files\terminas-backup\, C:\ProgramData\terminas-credentials\, C:\ProgramData\terminas-logs\
 ```
 
 ## Tools and Technologies
@@ -82,7 +82,7 @@ Windows: C:\Program Files\bakap-backup\, C:\ProgramData\bakap-credentials\, C:\P
 - **rsync**: Incremental snapshots with `--link-dest` for hardlinks
 - **fail2ban**: SSH/SFTP brute force and DOS protection
 - **iptables**: Firewall-level IP blocking (via fail2ban)
-- **systemd**: Service management (`bakap-monitor.service`)
+- **systemd**: Service management (`terminas-monitor.service`)
 - **cron**: Scheduled retention policy cleanup
 - **pwgen**: Secure 64-character password generation
 - **getent/groupadd/useradd**: User and group management
@@ -103,7 +103,7 @@ Windows: C:\Program Files\bakap-backup\, C:\ProgramData\bakap-credentials\, C:\P
 
 ### Version Control & Collaboration
 - **Git**: Source control and client auto-updates
-- **GitHub**: Repository hosting at YiannisBourkelis/bakap
+- **GitHub**: Repository hosting at YiannisBourkelis/termiNAS
 - **Markdown**: Documentation format
 
 ## Architecture and Design Patterns
@@ -136,7 +136,7 @@ Windows: C:\Program Files\bakap-backup\, C:\ProgramData\bakap-credentials\, C:\P
 **Simple Age-Based (alternative)**:
 - Keep snapshots for N days, delete older
 
-**Per-User Overrides**: Configurable in `/etc/bakap-retention.conf`
+**Per-User Overrides**: Configurable in `/etc/terminas-retention.conf`
 
 ## Development Guidelines
 
@@ -316,4 +316,4 @@ Windows: C:\Program Files\bakap-backup\, C:\ProgramData\bakap-credentials\, C:\P
 
 ---
 
-*This file serves as a comprehensive guide for development, maintenance, and contributions to the bakap project. Keep it updated as the project evolves.*
+*This file serves as a comprehensive guide for development, maintenance, and contributions to the termiNAS project. Keep it updated as the project evolves.*

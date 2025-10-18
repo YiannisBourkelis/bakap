@@ -5,7 +5,7 @@
 #
 # Copyright (c) 2025 Yianni Bourkelis
 # Licensed under the MIT License - see LICENSE file for details
-# https://github.com/YiannisBourkelis/bakap
+# https://github.com/YiannisBourkelis/termiNAS
 
 set -e
 

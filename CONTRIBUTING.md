@@ -1,4 +1,4 @@
-# Contributing to bakap
+# Contributing to termiNAS
 
 Thank you for your interest in contributing to bakap! We welcome contributions from the community.
 
@@ -32,4 +32,4 @@ If you have questions, please contact Yianni Bourkelis.
 4. Ensure your code follows the project's style and passes tests.
 5. Submit a pull request, agreeing to the CLA in your PR description.
 
-We appreciate your help in making bakap better!
+We appreciate your help in making termiNAS better!
