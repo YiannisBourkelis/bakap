@@ -874,13 +874,13 @@ list_users() {
     # Display header immediately before doing heavy processing
     echo "Backup Users:"
     if [ "$any_samba" = true ]; then
-        echo "=============================================================================================================================================="
-        printf "%-16s %8s %8s %6s %8s %19s %16s %16s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Protocol" "Last Snapshot" "Last SFTP" "Last SMB" "Status"
-        echo "----------------------------------------------------------------------------------------------------------------------------------------------"
+        echo "======================================================================================================================================================================================================"
+        printf "%-16s %12s %12s %6s %8s %23s %20s %20s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Protocol" "Last Snapshot" "Last SFTP" "Last SMB" "Status"
+        echo "------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------"
     else
-        echo "=================================================================================================================================="
-        printf "%-16s %8s %8s %6s %8s %19s %19s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Protocol" "Last Snapshot" "Last SFTP" "Status"
-        echo "----------------------------------------------------------------------------------------------------------------------------------"
+        echo "=========================================================================================================================================="
+        printf "%-16s %12s %12s %6s %8s %23s %23s %s\n" "Username" "Size(MB)" "Apparent" "Snaps" "Protocol" "Last Snapshot" "Last SFTP" "Status"
+        echo "------------------------------------------------------------------------------------------------------------------------------------------"
     fi
     
     # Build connection caches once for all users (performance optimization)
@@ -1057,15 +1057,15 @@ list_users() {
         # Print with color - adjust format based on whether Samba column is shown
         if [ "$any_samba" = true ]; then
             if [ -n "$status_color" ] && [ "$status" != "✓"* ]; then
-                printf "%-16s %8s %8s %6s %8s %19s %16s %16s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$display_smb" "$status"
+                printf "%-16s %12s %12s %6s %8s %23s %20s %20s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$display_smb" "$status"
             else
-                printf "%-16s %8s %8s %6s %8s %19s %16s %16s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$display_smb" "$status"
+                printf "%-16s %12s %12s %6s %8s %23s %20s %20s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$display_smb" "$status"
             fi
         else
             if [ -n "$status_color" ] && [ "$status" != "✓"* ]; then
-                printf "%-16s %8s %8s %6s %8s %19s %19s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$status"
+                printf "%-16s %12s %12s %6s %8s %23s %23s ${status_color}%s\033[0m\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$status"
             else
-                printf "%-16s %8s %8s %6s %8s %19s %19s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$status"
+                printf "%-16s %12s %12s %6s %8s %23s %23s %s\n" "$user" "$actual_size" "$apparent_size" "$snapshot_count" "$protocol" "$display_backup" "$display_sftp" "$status"
             fi
         fi
         
@@ -1077,11 +1077,11 @@ list_users() {
     
     # Print footer with appropriate line length
     if [ "$any_samba" = true ]; then
-        echo "----------------------------------------------------------------------------------------------------------------------------------------------"
-        printf "%-16s %8s %8s %6s %8s\n" "Total: $total_users" "$total_actual" "$total_apparent" "" ""
+        echo "------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------"
+        printf "%-16s %12s %12s %6s %8s\n" "Total: $total_users" "$total_actual" "$total_apparent" "" ""
     else
-        echo "----------------------------------------------------------------------------------------------------------------------------------"
-        printf "%-16s %8s %8s %6s %8s\n" "Total: $total_users" "$total_actual" "$total_apparent" "" ""
+        echo "------------------------------------------------------------------------------------------------------------------------------------------"
+        printf "%-16s %12s %12s %6s %8s\n" "Total: $total_users" "$total_actual" "$total_apparent" "" ""
     fi
     
     echo ""
