@@ -7,6 +7,15 @@
 # Licensed under the MIT License - see LICENSE file for details
 # https://github.com/YiannisBourkelis/terminas
 
+# Get version from VERSION file in repository root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../../VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+else
+    VERSION="unknown"
+fi
+
 set -e
 
 if [ $# -ne 1 ]; then
@@ -22,13 +31,19 @@ if ! id "$USERNAME" &>/dev/null; then
     exit 1
 fi
 
-# Confirm deletion
-read -p "Are you sure you want to delete user $USERNAME and all their data? (y/N): " confirm
-if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-    echo "Deletion cancelled."
-    exit 0
+# Safety confirmation - require typing username
+echo ""
+echo "WARNING: This will permanently delete user '$USERNAME' and ALL backup data!"
+echo "This action CANNOT be undone."
+echo ""
+read -p "Type the username '$USERNAME' again to confirm deletion: " confirmation
+
+if [ "$confirmation" != "$USERNAME" ]; then
+    echo "Username mismatch. Aborting deletion."
+    exit 1
 fi
 
+echo ""
 echo "Deleting user $USERNAME..."
 
 # Kill any processes owned by the user

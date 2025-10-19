@@ -7,6 +7,15 @@
 # Licensed under the MIT License - see LICENSE file for details
 # https://github.com/YiannisBourkelis/terminas
 
+# Get version from VERSION file in repository root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../../VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+else
+    VERSION="unknown"
+fi
+
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -21,6 +21,15 @@
 [CmdletBinding()]
 param()
 
+# Get version from VERSION file in repository root
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$VersionFile = Join-Path $ScriptDir "..\..\VERSION"
+if (Test-Path $VersionFile) {
+    $VERSION = (Get-Content $VersionFile -Raw).Trim()
+} else {
+    $VERSION = "unknown"
+}
+
 # Requires Administrator privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {

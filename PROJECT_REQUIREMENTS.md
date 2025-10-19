@@ -38,7 +38,7 @@ This project aims to create a secure, versioned backup server on Debian Linux. K
 - **Ransomware Mitigation**: Versioned snapshots are owned by root and not modifiable by users, preventing malware from altering or deleting historical versions.
 - **Access Control**: Users are chrooted to their home directories with SFTP-only access; no shell or SCP access.
 - **Authentication**: Uses SSH keys or passwords (with strong defaults); can be configured for key-only later.
-- **Data Integrity**: Snapshots are incremental using rsync with hardlinks, storing only changes to save disk space while maintaining full version history.
+- **Data Integrity**: Snapshots utilize Btrfs Copy-on-Write (CoW) technology with rsync hardlinks, leveraging Btrfs deduplication to store only block-level changes while maintaining full version history with minimal disk space usage.
 
 ### Assumptions and Scope
 - Target OS: Debian Linux (tested on recent versions).
@@ -48,10 +48,6 @@ This project aims to create a secure, versioned backup server on Debian Linux. K
 - Clients use standard tools like SFTP clients (e.g., FileZilla, WinSCP) or `sftp` command for uploads/downloads.
 
 ### Future Enhancements (Not in Initial Scope)
-- Per-file versioning instead of directory snapshots.
-- Integration with tools like restic or duplicity for better deduplication.
-- Web interface for browsing/downloading versions.
-- Automated cleanup of old versions.
-- Support for rsync over SSH for incremental backups.
+
 
 This document serves as a reference for development, testing, and future feature requests.

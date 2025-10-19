@@ -7,13 +7,22 @@
 # Licensed under the MIT License - see LICENSE file for details
 # https://github.com/YiannisBourkelis/terminas
 
+# Get version from VERSION file in repository root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../../VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+else
+    VERSION="unknown"
+fi
+
 set -e
 
 SCRIPT_NAME=$(basename "$0")
 
 usage() {
     cat <<EOF
-termiNAS User Management Tool
+termiNAS User Management Tool v$VERSION
 Copyright (c) 2025 Yianni Bourkelis
 https://github.com/YiannisBourkelis/terminas
 
@@ -37,6 +46,7 @@ Commands:
     disable-samba-versions <username> Disable SMB access to versions directory
     enable-timemachine <username>     Enable macOS Time Machine support for a user
     disable-timemachine <username>    Disable macOS Time Machine support for a user
+    version                 Show version information
     help                    Show this help message
 
 Examples:
@@ -2284,6 +2294,11 @@ case "$command" in
             exit 1
         fi
         disable_timemachine "$1"
+        ;;
+    version|--version|-v)
+        echo "termiNAS User Management Tool v$VERSION"
+        echo "Copyright (c) 2025 Yianni Bourkelis"
+        echo "https://github.com/YiannisBourkelis/terminas"
         ;;
     help|--help|-h)
         usage

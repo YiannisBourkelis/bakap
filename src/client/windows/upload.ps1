@@ -46,20 +46,30 @@ Notes:
 - Use -DeleteRemote with CAUTION: it will remove remote files that don't exist locally during directory sync.
 #>
 
+[CmdletBinding()]
 param(
-  [Parameter(Mandatory=$true)][string]$LocalPath,
-  [Parameter(Mandatory=$true)][string]$Username,
-  [Parameter(Mandatory=$true)][string]$Password,
-  [string]$DestPath = "uploads/",
-  [string]$ExpectedHostFingerprint = "",
-  [switch]$LogDebug,
-  [switch]$Force,
-  [switch]$DeleteRemote,
-  [string]$WinSCPPath = "",
-  [Parameter(Mandatory=$true)][string]$Server
+    [Parameter(Mandatory=$true)]
+    [string]$LocalPath,
+    [Parameter(Mandatory=$true)]
+    [string]$Server,
+    [Parameter(Mandatory=$true)]
+    [string]$Username,
+    [Parameter(Mandatory=$true)]
+    [string]$Password,
+    [string]$DestPath = "uploads",
+    [string]$ExpectedHostFingerprint = "",
+    [switch]$LogDebug,
+    [switch]$Force
 )
 
-# Normalize destination path: strip leading slashes/backslashes so the path is
+# Get version from VERSION file in repository root
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$VersionFile = Join-Path $ScriptDir "..\..\VERSION"
+if (Test-Path $VersionFile) {
+    $VERSION = (Get-Content $VersionFile -Raw).Trim()
+} else {
+    $VERSION = "unknown"
+}# Normalize destination path: strip leading slashes/backslashes so the path is
 # always relative to the user's chroot. If empty after trimming, use 'uploads'.
 $DestPath = $DestPath.TrimStart('/','\')
 if ([string]::IsNullOrEmpty($DestPath) -or [string]::IsNullOrEmpty($DestPath.Trim())) { $DestPath = 'uploads' }

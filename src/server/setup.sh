@@ -12,6 +12,15 @@
 #   - Debian 12 or later
 #   - Btrfs filesystem for /home
 
+# Get version from VERSION file in repository root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../../VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+else
+    VERSION="unknown"
+fi
+
 set -e
 
 # Parse command line arguments
@@ -24,6 +33,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
+            echo "termiNAS Server Setup v$VERSION"
             echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
@@ -34,6 +44,10 @@ while [[ $# -gt 0 ]]; do
             echo "Use --samba to also enable Samba sharing with strict security settings."
             exit 0
             ;;
+        --version|-v)
+            echo "termiNAS Server Setup v$VERSION"
+            exit 0
+            ;;
         *)
             echo "Unknown option: $1"
             echo "Use --help for usage information"
@@ -42,7 +56,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "Starting termiNAS server setup..."
+echo "Starting termiNAS server setup v$VERSION..."
 if [ "$ENABLE_SAMBA" = "true" ]; then
     echo "Samba support: ENABLED"
 else
