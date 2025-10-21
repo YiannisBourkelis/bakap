@@ -288,6 +288,8 @@ put "$LocalPath" "$DestPath"
   } else {
     $sb = "open sftp://$Username@${Server}/ -password=`"$Password`" $hostKeyOpt`r`n"
   }
+  # Set binary transfer mode for reliable file transfers
+  $sb += "option transfer binary`r`n"
   if ($preCmds -ne "") { $sb += "$preCmds`r`n" }
   $sb += "$putCmd`r`n"
   $sb += "close`r`n"
