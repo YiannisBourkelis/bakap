@@ -58,8 +58,10 @@ param(
     [string]$Password,
     [string]$DestPath = "uploads",
     [string]$ExpectedHostFingerprint = "",
+    [string]$WinSCPPath = "",
     [switch]$LogDebug,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$DeleteRemote
 )
 
 # Get version from VERSION file in repository root
