@@ -78,7 +78,7 @@ if ([string]::IsNullOrEmpty($DestPath) -or [string]::IsNullOrEmpty($DestPath.Tri
 
 # Set up logging and cache directory in ProgramData (works for both user and SYSTEM)
 # ProgramData is accessible to all users and SYSTEM account
-$terminasDataDir = Join-Path $env:ProgramData "bakap"
+$terminasDataDir = Join-Path $env:ProgramData "terminas"
 if (-not (Test-Path $terminasDataDir)) {
     try {
         New-Item -ItemType Directory -Path $terminasDataDir -Force | Out-Null

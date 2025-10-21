@@ -32,7 +32,7 @@ termiNAS is a secure, versioned backup server for Debian Linux that provides ran
 ## Folder Structure
 
 ```
-bakap/
+terminas/
 ├── LICENSE                      # MIT License
 ├── CONTRIBUTING.md              # Contribution guidelines with CLA
 ├── README.md                    # Complete project documentation
@@ -58,7 +58,7 @@ Server Runtime Files (created by setup.sh):
 └── cleanup_snapshots.sh        # Retention policy enforcement
 
 /etc/
-├── bakap-retention.conf        # Retention policy configuration
+├── terminas-retention.conf        # Retention policy configuration
 └── systemd/system/
     └── terminas-monitor.service   # systemd service for monitoring
 

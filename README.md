@@ -1242,7 +1242,7 @@ Possible causes:
 Solutions:
 ```powershell
 # Option 1: Enable debug mode and check logs
-Get-Content "C:\ProgramData\terminas-logs\bakap-<jobname>.log" -Tail 100
+Get-Content "C:\ProgramData\terminas-logs\terminas-<jobname>.log" -Tail 100
 
 # Option 2: Manually provide the expected fingerprint
 # Get fingerprint from server:

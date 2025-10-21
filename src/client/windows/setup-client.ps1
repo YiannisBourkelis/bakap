@@ -211,7 +211,7 @@ Write-Host "[OK] Created secure credentials file: $credFile" -ForegroundColor Gr
 
 # Create backup script
 $backupScript = Join-Path $bakupDir "backup-$jobName.ps1"
-$logFile = Join-Path $logsDir "bakap-$jobName.log"
+$logFile = Join-Path $logsDir "terminas-$jobName.log"
 
 $scriptContent = @"
 # termiNAS Backup Script - $jobName
