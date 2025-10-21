@@ -76,11 +76,16 @@ if (Test-Path $VersionFile) {
 $DestPath = $DestPath.TrimStart('/','\')
 if ([string]::IsNullOrEmpty($DestPath) -or [string]::IsNullOrEmpty($DestPath.Trim())) { $DestPath = 'uploads' }
 
-# Set up logging and cache directory in LocalAppData
-# This prevents files from appearing in git status if script is run from repo
-$terminasDataDir = Join-Path $env:LOCALAPPDATA "bakap"
+# Set up logging and cache directory in ProgramData (works for both user and SYSTEM)
+# ProgramData is accessible to all users and SYSTEM account
+$terminasDataDir = Join-Path $env:ProgramData "bakap"
 if (-not (Test-Path $terminasDataDir)) {
-    New-Item -ItemType Directory -Path $terminasDataDir -Force | Out-Null
+    try {
+        New-Item -ItemType Directory -Path $terminasDataDir -Force | Out-Null
+    } catch {
+        Write-Host "ERROR: Failed to create data directory: $terminasDataDir - $_" -ForegroundColor Red
+        exit 5
+    }
 }
 $logFile = Join-Path $terminasDataDir "upload_log.txt"
 $hostKeyCacheDir = Join-Path $terminasDataDir "hostkeys"
@@ -296,74 +301,112 @@ put "$LocalPath" "$DestPath"
   $sb += "exit`r`n"
   Set-Content -Path $winscpScript -Value $sb -Encoding ASCII
 
-  # Build WinSCP command and monitor output to kill process if it hangs
-  # Use Start-Job to run WinSCP and monitor with timeout
-  $jobScript = {
-    param($winscpPath, $scriptPath, $logPath)
-    if ($logPath) {
-      & $winscpPath "/log=$logPath" "/script=$scriptPath"
-    } else {
-      & $winscpPath "/script=$scriptPath"
-    }
-    $LASTEXITCODE
-  }
-  
-  # Always create log file if capturing fingerprint (needed to extract fingerprint from log)
+  # Build WinSCP command - simple direct execution with & operator
+  # Always create log file for fingerprint capture if needed
   if ($LogDebug.IsPresent -or $captureFingerprint) {
     $winscpLogFile = [System.IO.Path]::GetTempFileName()
     if ($LogDebug.IsPresent) {
       Write-Log "Debug mode: WinSCP raw log will be saved to $winscpLogFile"
     }
-    $job = Start-Job -ScriptBlock $jobScript -ArgumentList $winscp,$winscpScript,$winscpLogFile
   } else {
     $winscpLogFile = $null
-    $job = Start-Job -ScriptBlock $jobScript -ArgumentList $winscp,$winscpScript,$null
   }
   
-  # Monitor job output for hang detection
-  # Only trigger if we see "No session." followed by 5 seconds of silence
-  $noSessionDetected = $false
-  $noSessionTime = $null
-  $hangTimeout = 5  # seconds to wait after "No session." before killing
+  # Build arguments array
+  if ($winscpLogFile) {
+    $winscpArgs = "/console /log=`"$winscpLogFile`" /script=`"$winscpScript`""
+  } else {
+    $winscpArgs = "/console /script=`"$winscpScript`""
+  }
   
-  while ($job.State -eq 'Running') {
-    $output = Receive-Job $job 2>&1
-    if ($output) {
-      foreach ($line in $output) {
-        Write-Host $line
-        # Check if output contains "No session."
-        if ($line -match "No session\.") {
-          $noSessionDetected = $true
-          $noSessionTime = Get-Date
-          Write-Host "Detected 'No session.' - monitoring for hang..."
-        }
+  # Start WinSCP process and get PID
+  Write-Log "Starting WinSCP process..."
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $winscp
+  $psi.Arguments = $winscpArgs
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $winscpProc = [System.Diagnostics.Process]::Start($psi)
+  $winscpPID = $winscpProc.Id
+  Write-Log "Started WinSCP with PID: $winscpPID"
+  
+  # Monitor output for "No session." and kill if it hangs
+  $hangTimeout = 3  # seconds to wait after "No session." before killing
+  $noSessionFile = [System.IO.Path]::GetTempFileName()
+  
+  # Read output asynchronously and write "No session." detection to temp file
+  $outAction = {
+    if ($EventArgs.Data) {
+      Write-Host $EventArgs.Data
+      
+      # Check for "No session." in output
+      if ($EventArgs.Data -match "(?i)no\s+session") {
+        # Signal detection by writing timestamp to temp file
+        $timestamp = (Get-Date).ToString("o")
+        Set-Content -Path $Event.MessageData -Value $timestamp -Force
+      }
+    }
+  }
+  
+  $outEvent = Register-ObjectEvent -InputObject $winscpProc -EventName OutputDataReceived -Action $outAction -MessageData $noSessionFile
+  $errEvent = Register-ObjectEvent -InputObject $winscpProc -EventName ErrorDataReceived -Action $outAction -MessageData $noSessionFile
+  
+  $winscpProc.BeginOutputReadLine()
+  $winscpProc.BeginErrorReadLine()
+  
+  # Wait for process to exit or hang after "No session."
+  $noSessionTime = $null
+  $actualExitCode = 0  # Assume success if WinSCP completed its work
+  while (-not $winscpProc.HasExited) {
+    # Check if "No session." was detected by reading temp file
+    if ((Test-Path $noSessionFile) -and $noSessionTime -eq $null) {
+      $content = Get-Content $noSessionFile -ErrorAction SilentlyContinue
+      if ($content) {
+        $noSessionTime = Get-Date
+        Write-Log "Detected 'No session.' message, monitoring for hang..."
       }
     }
     
-    # If "No session." was detected, check if we've had silence for hangTimeout seconds
-    if ($noSessionDetected -and $noSessionTime) {
+    # If detected, check if timeout exceeded
+    if ($noSessionTime -ne $null) {
       $silenceDuration = ((Get-Date) - $noSessionTime).TotalSeconds
       if ($silenceDuration -gt $hangTimeout) {
-        Write-Host "Process hung after 'No session.' message, terminating..."
-        Stop-Job $job -ErrorAction SilentlyContinue
-        Get-Process | Where-Object { $_.Name -like "*winscp*" } | ForEach-Object { 
-          try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {}
+        Write-Host "Process hung after 'No session.' message (${silenceDuration}s), terminating PID $winscpPID..."
+        Write-Log "Terminating hung WinSCP process PID $winscpPID"
+        Write-Log "Note: 'No session.' indicates WinSCP completed successfully before hanging on prompt"
+        # Since "No session." means WinSCP finished its work successfully,
+        # we can safely assume exit code 0 before killing the hung process
+        $actualExitCode = 0
+        try {
+          $winscpProc.Kill()
+          Write-Log "Successfully terminated WinSCP PID $winscpPID"
+        } catch {
+          Write-Log "Warning: Failed to stop WinSCP process $winscpPID : $_"
         }
         break
       }
     }
-    
     Start-Sleep -Milliseconds 500
   }
   
-  # Get any remaining output
-  $output = Receive-Job $job 2>&1
-  if ($output) {
-    foreach ($line in $output) { Write-Host $line }
+  # Clean up events and temp file
+  Unregister-Event -SourceIdentifier $outEvent.Name -ErrorAction SilentlyContinue
+  Unregister-Event -SourceIdentifier $errEvent.Name -ErrorAction SilentlyContinue
+  Remove-Item -Path $noSessionFile -Force -ErrorAction SilentlyContinue
+  
+  # Get exit code - use actual code from process unless we killed it after successful completion
+  $winscpProc.WaitForExit()
+  $rc = $winscpProc.ExitCode
+  $winscpProc.Dispose()
+  
+  # If we killed the process after "No session." (which means success), use our saved exit code
+  if ($rc -eq -1 -and $actualExitCode -eq 0) {
+    Write-Log "WinSCP was terminated after successful completion (overriding exit code -1 with 0)"
+    $rc = $actualExitCode
   }
   
-  $rc = if ($job.State -eq 'Completed') { Receive-Job $job } else { 0 }
-  Remove-Job $job -Force -ErrorAction SilentlyContinue
+  Write-Log "WinSCP process exited with code: $rc"
   
   # If we captured fingerprint on first connection, extract and cache it
   if ($captureFingerprint -and $rc -eq 0 -and $winscpLogFile) {
@@ -447,11 +490,12 @@ put "$LocalPath" "$DestPath"
     Write-Log "  winscpLogFile: $(if($winscpLogFile){'exists'}else{'null'})"
   }
     
-  # Clean up temporary log file if we only created it for fingerprint capture
+  # Clean up temporary log file unless in debug mode
   if (-not $LogDebug.IsPresent -and $winscpLogFile) {
+      Write-Log "Cleaning up temporary WinSCP log file"
       Remove-Item -Force $winscpLogFile -ErrorAction SilentlyContinue
   } elseif ($LogDebug.IsPresent -and $winscpLogFile) {
-      Write-Log "WinSCP log: $winscpLogFile"
+      Write-Log "Debug mode: WinSCP log preserved at $winscpLogFile"
   }
   
   Remove-Item -Force $winscpScript -ErrorAction SilentlyContinue
