@@ -219,6 +219,37 @@ get_last_backup_date() {
     fi
 }
 
+# Calculate total logical size of all snapshots for a user (in MB)
+# Uses efficient single-pass find to avoid iterating through each snapshot separately
+# Args: $1 = versions_dir path
+# Returns: Size in MB (e.g., "1234.56")
+get_snapshots_logical_size() {
+    local versions_dir="$1"
+    
+    if [ ! -d "$versions_dir" ]; then
+        echo "0.00"
+        return
+    fi
+    
+    local snapshot_count=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+    
+    if [ $snapshot_count -eq 0 ]; then
+        echo "0.00"
+        return
+    fi
+    
+    # Calculate total logical size of all snapshots in one pass
+    # Much faster than iterating through each snapshot individually
+    local size=$(find "$versions_dir" -type f -printf '%s\n' 2>/dev/null | awk '{sum+=$1} END {printf "%.2f", sum/1024/1024}')
+    
+    # Handle empty result
+    if [ -z "$size" ] || [ "$size" = "" ]; then
+        echo "0.00"
+    else
+        echo "$size"
+    fi
+}
+
 # Build a dictionary of all user last connections (called once for performance)
 # Returns associative array: username -> "formatted_date|epoch"
 build_connection_cache() {
@@ -1004,22 +1035,13 @@ list_users() {
         
         # Calculate logical size (sum of all files in uploads + all snapshots)
         local uploads_logical=$(get_apparent_size "$home_dir/uploads")
-        local snapshots_logical="0.00"
         
-        # Count snapshots and calculate logical size
+        # Count snapshots and calculate logical size using shared function
         local snapshot_count=0
+        local snapshots_logical="0.00"
         if [ -d "$home_dir/versions" ]; then
             snapshot_count=$(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-            
-            # Calculate total logical size of all snapshots in one pass
-            # Much faster than iterating through each snapshot individually
-            if [ $snapshot_count -gt 0 ]; then
-                snapshots_logical=$(find "$home_dir/versions" -type f -printf '%s\n' 2>/dev/null | awk '{sum+=$1} END {printf "%.2f", sum/1024/1024}')
-                # Handle empty result
-                if [ -z "$snapshots_logical" ] || [ "$snapshots_logical" = "" ]; then
-                    snapshots_logical="0.00"
-                fi
-            fi
+            snapshots_logical=$(get_snapshots_logical_size "$home_dir/versions")
         fi
         
         apparent_size=$(echo "scale=2; ($uploads_logical + $snapshots_logical) / 1" | bc)
@@ -1262,17 +1284,8 @@ info_user() {
         
         if [ -d "$versions_dir" ]; then
             snapshot_count=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-            
-            # Sum logical file sizes for all snapshots
-            while IFS= read -r snapshot; do
-                if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
-                    # Calculate MB directly in awk to avoid scientific notation issues
-                    local snapshot_mb=$(find "$snapshot" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {printf "%.2f", sum/1024/1024}')
-                    if [ -n "$snapshot_mb" ] && [ "$snapshot_mb" != "0.00" ]; then
-                        total_logical_size=$(echo "$total_logical_size + $snapshot_mb" | bc)
-                    fi
-                fi
-            done < <(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+            # Use shared function for calculating snapshot sizes
+            total_logical_size=$(get_snapshots_logical_size "$versions_dir")
         fi
         
         # Calculate logical size (what it would be without Btrfs CoW)
