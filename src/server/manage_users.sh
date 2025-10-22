@@ -236,22 +236,30 @@ build_connection_cache() {
             ts = $1 " " $2 " " $3
             
             # Extract username from "Accepted password for USERNAME" or "Accepted publickey for USERNAME"
-            match($0, /Accepted (password|publickey) for ([^ ]+)/, arr)
-            if (arr[2]) {
-                user = arr[2]
-                # Convert to epoch (cache the result to avoid repeated conversions)
-                if (!(ts in epoch_cache)) {
-                    cmd = "date -d \"" ts "\" +%s 2>/dev/null"
-                    cmd | getline epoch_ts
-                    close(cmd)
-                    epoch_cache[ts] = epoch_ts
-                } else {
-                    epoch_ts = epoch_cache[ts]
+            # Use mawk-compatible approach
+            if (match($0, /Accepted (password|publickey) for ([^ ]+)/)) {
+                # Split the line and find the username after "for"
+                split($0, parts, " ")
+                for (i = 1; i <= length(parts); i++) {
+                    if (parts[i] == "for") {
+                        user = parts[i+1]
+                        break
+                    }
                 }
                 
-                # Store user -> latest epoch
-                if (!(user in users) || epoch_ts > users[user]) {
-                    users[user] = epoch_ts
+                if (user != "") {
+                    if (!(ts in epoch_cache)) {
+                        cmd = "date -d \"" ts "\" +%s 2>/dev/null"
+                        cmd | getline epoch_ts
+                        close(cmd)
+                        epoch_cache[ts] = epoch_ts
+                    } else {
+                        epoch_ts = epoch_cache[ts]
+                    }
+                    
+                    if (!(user in users) || epoch_ts > users[user]) {
+                        users[user] = epoch_ts
+                    }
                 }
             }
         }
@@ -275,20 +283,30 @@ build_connection_cache() {
         awk '
         {
             ts = $1 " " $2 " " $3
-            match($0, /Accepted (password|publickey) for ([^ ]+)/, arr)
-            if (arr[2]) {
-                user = arr[2]
-                if (!(ts in epoch_cache)) {
-                    cmd = "date -d \"" ts "\" +%s 2>/dev/null"
-                    cmd | getline epoch_ts
-                    close(cmd)
-                    epoch_cache[ts] = epoch_ts
-                } else {
-                    epoch_ts = epoch_cache[ts]
+            # Use mawk-compatible approach
+            if (match($0, /Accepted (password|publickey) for ([^ ]+)/)) {
+                # Split the line and find the username after "for"
+                split($0, parts, " ")
+                for (i = 1; i <= length(parts); i++) {
+                    if (parts[i] == "for") {
+                        user = parts[i+1]
+                        break
+                    }
                 }
                 
-                if (!(user in users) || epoch_ts > users[user]) {
-                    users[user] = epoch_ts
+                if (user != "") {
+                    if (!(ts in epoch_cache)) {
+                        cmd = "date -d \"" ts "\" +%s 2>/dev/null"
+                        cmd | getline epoch_ts
+                        close(cmd)
+                        epoch_cache[ts] = epoch_ts
+                    } else {
+                        epoch_ts = epoch_cache[ts]
+                    }
+                    
+                    if (!(user in users) || epoch_ts > users[user]) {
+                        users[user] = epoch_ts
+                    }
                 }
             }
         }
