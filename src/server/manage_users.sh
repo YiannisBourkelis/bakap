@@ -1011,16 +1011,15 @@ list_users() {
         if [ -d "$home_dir/versions" ]; then
             snapshot_count=$(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
             
-            # Sum logical sizes of all snapshots
-            while IFS= read -r snapshot; do
-                if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
-                    # Calculate MB directly in awk to avoid scientific notation issues
-                    local snap_mb=$(find "$snapshot" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {printf "%.2f", sum/1024/1024}')
-                    if [ -n "$snap_mb" ] && [ "$snap_mb" != "0.00" ]; then
-                        snapshots_logical=$(echo "$snapshots_logical + $snap_mb" | bc)
-                    fi
+            # Calculate total logical size of all snapshots in one pass
+            # Much faster than iterating through each snapshot individually
+            if [ $snapshot_count -gt 0 ]; then
+                snapshots_logical=$(find "$home_dir/versions" -type f -printf '%s\n' 2>/dev/null | awk '{sum+=$1} END {printf "%.2f", sum/1024/1024}')
+                # Handle empty result
+                if [ -z "$snapshots_logical" ] || [ "$snapshots_logical" = "" ]; then
+                    snapshots_logical="0.00"
                 fi
-            done < <(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+            fi
         fi
         
         apparent_size=$(echo "scale=2; ($uploads_logical + $snapshots_logical) / 1" | bc)
