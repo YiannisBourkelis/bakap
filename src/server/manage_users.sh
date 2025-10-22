@@ -227,54 +227,82 @@ build_connection_cache() {
     # Try systemd journal first (Debian 12+)
     if command -v journalctl &>/dev/null; then
         # Get all accepted authentications in last 90 days, extract username and timestamp
-        while IFS= read -r line; do
+        # Use awk for efficient single-pass processing
+        journalctl -u ssh.service --since "90 days ago" 2>/dev/null | \
+        grep -i "Accepted password for\|Accepted publickey for" | \
+        awk '
+        {
+            # Extract timestamp (fields 1-3: Oct 10 08:15:30)
+            ts = $1 " " $2 " " $3
+            
             # Extract username from "Accepted password for USERNAME" or "Accepted publickey for USERNAME"
-            local user=$(echo "$line" | sed -n 's/.*Accepted \(password\|publickey\) for \([^ ]*\).*/\2/p' | head -1)
-            if [ -n "$user" ]; then
-                # Extract timestamp (first 3 fields: Oct 10 08:15:30)
-                local timestamp=$(echo "$line" | awk '{print $1, $2, $3}')
-                local epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo 0)
+            match($0, /Accepted (password|publickey) for ([^ ]+)/, arr)
+            if (arr[2]) {
+                user = arr[2]
+                # Convert to epoch (cache the result to avoid repeated conversions)
+                if (!(ts in epoch_cache)) {
+                    cmd = "date -d \"" ts "\" +%s 2>/dev/null"
+                    cmd | getline epoch_ts
+                    close(cmd)
+                    epoch_cache[ts] = epoch_ts
+                } else {
+                    epoch_ts = epoch_cache[ts]
+                }
                 
-                if [ "$epoch" -gt 0 ]; then
-                    # Only store if this is newer than what we have (or first entry)
-                    if [ -z "${CONNECTION_CACHE[$user]}" ]; then
-                        local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                        CONNECTION_CACHE[$user]="$formatted|$epoch"
-                    else
-                        local existing_epoch=$(echo "${CONNECTION_CACHE[$user]}" | cut -d'|' -f2)
-                        if [ "$epoch" -gt "$existing_epoch" ]; then
-                            local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                            CONNECTION_CACHE[$user]="$formatted|$epoch"
-                        fi
-                    fi
-                fi
+                # Store user -> latest epoch
+                if (!(user in users) || epoch_ts > users[user]) {
+                    users[user] = epoch_ts
+                }
+            }
+        }
+        END {
+            for (user in users) {
+                print user "|" users[user]
+            }
+        }
+        ' | while IFS='|' read -r user epoch; do
+            if [ "$epoch" -gt 0 ]; then
+                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                CONNECTION_CACHE[$user]="$formatted|$epoch"
             fi
-        done < <(journalctl -u ssh.service --since "90 days ago" 2>/dev/null | grep -i "Accepted password for\|Accepted publickey for")
+        done
         return
     fi
     
     # Fallback to auth.log if available
     if [ -f /var/log/auth.log ]; then
-        while IFS= read -r line; do
-            local user=$(echo "$line" | sed -n 's/.*Accepted \(password\|publickey\) for \([^ ]*\).*/\2/p' | head -1)
-            if [ -n "$user" ]; then
-                local timestamp=$(echo "$line" | awk '{print $1, $2, $3}')
-                local epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo 0)
+        grep -i "Accepted password for\|Accepted publickey for" /var/log/auth.log 2>/dev/null | \
+        awk '
+        {
+            ts = $1 " " $2 " " $3
+            match($0, /Accepted (password|publickey) for ([^ ]+)/, arr)
+            if (arr[2]) {
+                user = arr[2]
+                if (!(ts in epoch_cache)) {
+                    cmd = "date -d \"" ts "\" +%s 2>/dev/null"
+                    cmd | getline epoch_ts
+                    close(cmd)
+                    epoch_cache[ts] = epoch_ts
+                } else {
+                    epoch_ts = epoch_cache[ts]
+                }
                 
-                if [ "$epoch" -gt 0 ]; then
-                    if [ -z "${CONNECTION_CACHE[$user]}" ]; then
-                        local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                        CONNECTION_CACHE[$user]="$formatted|$epoch"
-                    else
-                        local existing_epoch=$(echo "${CONNECTION_CACHE[$user]}" | cut -d'|' -f2)
-                        if [ "$epoch" -gt "$existing_epoch" ]; then
-                            local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                            CONNECTION_CACHE[$user]="$formatted|$epoch"
-                        fi
-                    fi
-                fi
+                if (!(user in users) || epoch_ts > users[user]) {
+                    users[user] = epoch_ts
+                }
+            }
+        }
+        END {
+            for (user in users) {
+                print user "|" users[user]
+            }
+        }
+        ' | while IFS='|' read -r user epoch; do
+            if [ "$epoch" -gt 0 ]; then
+                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                CONNECTION_CACHE[$user]="$formatted|$epoch"
             fi
-        done < <(grep -i "Accepted password for\|Accepted publickey for" /var/log/auth.log 2>/dev/null)
+        done
     fi
 }
 
@@ -1796,7 +1824,7 @@ cleanup_user() {
             # Check if it's a Btrfs subvolume
             if btrfs subvolume show "$snapshot" &>/dev/null; then
                 # Make snapshot writable before deletion
-                btrfs property set -ts "$snapshot" ro false 2>/dev/null || true
+                btrfs property set -ts "$snapshot" ro false &>/dev/null || true
                 if btrfs subvolume delete "$snapshot" &>/dev/null; then
                     removed=$((removed + 1))
                 fi
@@ -2296,17 +2324,3 @@ case "$command" in
         disable_timemachine "$1"
         ;;
     version|--version|-v)
-        echo "termiNAS User Management Tool v$VERSION"
-        echo "Copyright (c) 2025 Yianni Bourkelis"
-        echo "https://github.com/YiannisBourkelis/terminas"
-        ;;
-    help|--help|-h)
-        usage
-        ;;
-    *)
-        echo "Error: Unknown command '$command'" >&2
-        echo ""
-        usage
-        exit 1
-        ;;
-esac
