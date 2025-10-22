@@ -2324,3 +2324,17 @@ case "$command" in
         disable_timemachine "$1"
         ;;
     version|--version|-v)
+        echo "termiNAS User Management Tool v$VERSION"
+        echo "Copyright (c) 2025 Yianni Bourkelis"
+        echo "https://github.com/YiannisBourkelis/terminas"
+        ;;
+    help|--help|-h)
+        usage
+        ;;
+    *)
+        echo "Error: Unknown command '$command'" >&2
+        echo ""
+        usage
+        exit 1
+        ;;
+esac
