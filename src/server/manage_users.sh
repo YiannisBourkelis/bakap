@@ -228,7 +228,12 @@ build_connection_cache() {
     if command -v journalctl &>/dev/null; then
         # Get all accepted authentications in last 90 days, extract username and timestamp
         # Use awk for efficient single-pass processing
-        journalctl -u ssh.service --since "90 days ago" 2>/dev/null | \
+        while IFS='|' read -r user epoch; do
+            if [ -n "$user" ] && [ "$epoch" -gt 0 ]; then
+                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                CONNECTION_CACHE[$user]="$formatted|$epoch"
+            fi
+        done < <(journalctl -u ssh.service --since "90 days ago" 2>/dev/null | \
         grep -i "Accepted password for\|Accepted publickey for" | \
         awk '
         {
@@ -268,18 +273,18 @@ build_connection_cache() {
                 print user "|" users[user]
             }
         }
-        ' | while IFS='|' read -r user epoch; do
-            if [ "$epoch" -gt 0 ]; then
-                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                CONNECTION_CACHE[$user]="$formatted|$epoch"
-            fi
-        done
+        ')
         return
     fi
     
     # Fallback to auth.log if available
     if [ -f /var/log/auth.log ]; then
-        grep -i "Accepted password for\|Accepted publickey for" /var/log/auth.log 2>/dev/null | \
+        while IFS='|' read -r user epoch; do
+            if [ -n "$user" ] && [ "$epoch" -gt 0 ]; then
+                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                CONNECTION_CACHE[$user]="$formatted|$epoch"
+            fi
+        done < <(grep -i "Accepted password for\|Accepted publickey for" /var/log/auth.log 2>/dev/null | \
         awk '
         {
             ts = $1 " " $2 " " $3
@@ -315,12 +320,7 @@ build_connection_cache() {
                 print user "|" users[user]
             }
         }
-        ' | while IFS='|' read -r user epoch; do
-            if [ "$epoch" -gt 0 ]; then
-                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                CONNECTION_CACHE[$user]="$formatted|$epoch"
-            fi
-        done
+        ')
     fi
 }
 
