@@ -171,8 +171,8 @@ Write-Host "[OK] Using upload script: $uploadScript" -ForegroundColor Green
 
 # Create directories
 $bakupDir = "C:\Program Files\terminas-backup"
-$credentialsDir = "C:\ProgramData\terminas-credentials"
-$logsDir = "C:\ProgramData\terminas-logs"
+$credentialsDir = "C:\ProgramData\terminas\credentials"
+$logsDir = "C:\ProgramData\terminas\logs"
 
 if (-not (Test-Path $bakupDir)) {
     New-Item -ItemType Directory -Path $bakupDir -Force | Out-Null
@@ -211,7 +211,7 @@ Write-Host "[OK] Created secure credentials file: $credFile" -ForegroundColor Gr
 
 # Create backup script
 $backupScript = Join-Path $bakupDir "backup-$jobName.ps1"
-$logFile = Join-Path $logsDir "bakap-$jobName.log"
+$logFile = Join-Path $logsDir "terminas-$jobName.log"
 
 $scriptContent = @"
 # termiNAS Backup Script - $jobName
@@ -408,7 +408,7 @@ Write-Host ""
 Write-Host "Security (TOFU - Trust On First Use):" -ForegroundColor Yellow
 Write-Host "  - First backup: Accepts server key, caches fingerprint" -ForegroundColor White
 Write-Host "  - Later backups: Verifies against cached fingerprint" -ForegroundColor White
-Write-Host "  - Cache location: C:\Windows\System32\config\systemprofile\AppData\Local\terminas\hostkeys\" -ForegroundColor White
+Write-Host "  - Cache location: C:\ProgramData\terminas\hostkeys\" -ForegroundColor White
 Write-Host "  - If server key changes: Backup will fail with exit code 6" -ForegroundColor White
 Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor Yellow

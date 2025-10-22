@@ -1,6 +1,6 @@
 # Contributing to termiNAS
 
-Thank you for your interest in contributing to bakap! We welcome contributions from the community.
+Thank you for your interest in contributing to termiNAS! We welcome contributions from the community.
 
 ## Contributor License Agreement (CLA)
 

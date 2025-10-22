@@ -132,6 +132,17 @@ if ! grep -q "Subsystem sftp internal-sftp" /etc/ssh/sshd_config; then
     echo "  - Configured internal-sftp subsystem"
 fi
 
+# Configure SSH keepalive to prevent long uploads from timing out
+if ! grep -q "^ClientAliveInterval" /etc/ssh/sshd_config; then
+    sed -i 's/#*ClientAliveInterval.*/ClientAliveInterval 60/' /etc/ssh/sshd_config
+    echo "  - Set ClientAliveInterval to 60 seconds"
+fi
+
+if ! grep -q "^ClientAliveCountMax" /etc/ssh/sshd_config; then
+    sed -i 's/#*ClientAliveCountMax.*/ClientAliveCountMax 120/' /etc/ssh/sshd_config
+    echo "  - Set ClientAliveCountMax to 120 (allows 2 hours of inactivity)"
+fi
+
 # Add group chroot configuration (only if not already present)
 if ! grep -q "Match Group backupusers" /etc/ssh/sshd_config; then
     echo "" >> /etc/ssh/sshd_config

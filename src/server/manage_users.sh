@@ -219,6 +219,37 @@ get_last_backup_date() {
     fi
 }
 
+# Calculate total logical size of all snapshots for a user (in MB)
+# Uses efficient single-pass find to avoid iterating through each snapshot separately
+# Args: $1 = versions_dir path
+# Returns: Size in MB (e.g., "1234.56")
+get_snapshots_logical_size() {
+    local versions_dir="$1"
+    
+    if [ ! -d "$versions_dir" ]; then
+        echo "0.00"
+        return
+    fi
+    
+    local snapshot_count=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+    
+    if [ $snapshot_count -eq 0 ]; then
+        echo "0.00"
+        return
+    fi
+    
+    # Calculate total logical size of all snapshots in one pass
+    # Much faster than iterating through each snapshot individually
+    local size=$(find "$versions_dir" -type f -printf '%s\n' 2>/dev/null | awk '{sum+=$1} END {printf "%.2f", sum/1024/1024}')
+    
+    # Handle empty result
+    if [ -z "$size" ] || [ "$size" = "" ]; then
+        echo "0.00"
+    else
+        echo "$size"
+    fi
+}
+
 # Build a dictionary of all user last connections (called once for performance)
 # Returns associative array: username -> "formatted_date|epoch"
 build_connection_cache() {
@@ -227,54 +258,100 @@ build_connection_cache() {
     # Try systemd journal first (Debian 12+)
     if command -v journalctl &>/dev/null; then
         # Get all accepted authentications in last 90 days, extract username and timestamp
-        while IFS= read -r line; do
-            # Extract username from "Accepted password for USERNAME" or "Accepted publickey for USERNAME"
-            local user=$(echo "$line" | sed -n 's/.*Accepted \(password\|publickey\) for \([^ ]*\).*/\2/p' | head -1)
-            if [ -n "$user" ]; then
-                # Extract timestamp (first 3 fields: Oct 10 08:15:30)
-                local timestamp=$(echo "$line" | awk '{print $1, $2, $3}')
-                local epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo 0)
-                
-                if [ "$epoch" -gt 0 ]; then
-                    # Only store if this is newer than what we have (or first entry)
-                    if [ -z "${CONNECTION_CACHE[$user]}" ]; then
-                        local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                        CONNECTION_CACHE[$user]="$formatted|$epoch"
-                    else
-                        local existing_epoch=$(echo "${CONNECTION_CACHE[$user]}" | cut -d'|' -f2)
-                        if [ "$epoch" -gt "$existing_epoch" ]; then
-                            local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                            CONNECTION_CACHE[$user]="$formatted|$epoch"
-                        fi
-                    fi
-                fi
+        # Use awk for efficient single-pass processing
+        while IFS='|' read -r user epoch; do
+            if [ -n "$user" ] && [ "$epoch" -gt 0 ]; then
+                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                CONNECTION_CACHE[$user]="$formatted|$epoch"
             fi
-        done < <(journalctl -u ssh.service --since "90 days ago" 2>/dev/null | grep -i "Accepted password for\|Accepted publickey for")
+        done < <(journalctl -u ssh.service --since "90 days ago" 2>/dev/null | \
+        grep -i "Accepted password for\|Accepted publickey for" | \
+        awk '
+        {
+            # Extract timestamp (fields 1-3: Oct 10 08:15:30)
+            ts = $1 " " $2 " " $3
+            
+            # Extract username from "Accepted password for USERNAME" or "Accepted publickey for USERNAME"
+            # Use mawk-compatible approach
+            if (match($0, /Accepted (password|publickey) for ([^ ]+)/)) {
+                # Split the line and find the username after "for"
+                split($0, parts, " ")
+                for (i = 1; i <= length(parts); i++) {
+                    if (parts[i] == "for") {
+                        user = parts[i+1]
+                        break
+                    }
+                }
+                
+                if (user != "") {
+                    if (!(ts in epoch_cache)) {
+                        cmd = "date -d \"" ts "\" +%s 2>/dev/null"
+                        cmd | getline epoch_ts
+                        close(cmd)
+                        epoch_cache[ts] = epoch_ts
+                    } else {
+                        epoch_ts = epoch_cache[ts]
+                    }
+                    
+                    if (!(user in users) || epoch_ts > users[user]) {
+                        users[user] = epoch_ts
+                    }
+                }
+            }
+        }
+        END {
+            for (user in users) {
+                print user "|" users[user]
+            }
+        }
+        ')
         return
     fi
     
     # Fallback to auth.log if available
     if [ -f /var/log/auth.log ]; then
-        while IFS= read -r line; do
-            local user=$(echo "$line" | sed -n 's/.*Accepted \(password\|publickey\) for \([^ ]*\).*/\2/p' | head -1)
-            if [ -n "$user" ]; then
-                local timestamp=$(echo "$line" | awk '{print $1, $2, $3}')
-                local epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo 0)
-                
-                if [ "$epoch" -gt 0 ]; then
-                    if [ -z "${CONNECTION_CACHE[$user]}" ]; then
-                        local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                        CONNECTION_CACHE[$user]="$formatted|$epoch"
-                    else
-                        local existing_epoch=$(echo "${CONNECTION_CACHE[$user]}" | cut -d'|' -f2)
-                        if [ "$epoch" -gt "$existing_epoch" ]; then
-                            local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                            CONNECTION_CACHE[$user]="$formatted|$epoch"
-                        fi
-                    fi
-                fi
+        while IFS='|' read -r user epoch; do
+            if [ -n "$user" ] && [ "$epoch" -gt 0 ]; then
+                local formatted=$(date -d "@$epoch" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                CONNECTION_CACHE[$user]="$formatted|$epoch"
             fi
-        done < <(grep -i "Accepted password for\|Accepted publickey for" /var/log/auth.log 2>/dev/null)
+        done < <(grep -i "Accepted password for\|Accepted publickey for" /var/log/auth.log 2>/dev/null | \
+        awk '
+        {
+            ts = $1 " " $2 " " $3
+            # Use mawk-compatible approach
+            if (match($0, /Accepted (password|publickey) for ([^ ]+)/)) {
+                # Split the line and find the username after "for"
+                split($0, parts, " ")
+                for (i = 1; i <= length(parts); i++) {
+                    if (parts[i] == "for") {
+                        user = parts[i+1]
+                        break
+                    }
+                }
+                
+                if (user != "") {
+                    if (!(ts in epoch_cache)) {
+                        cmd = "date -d \"" ts "\" +%s 2>/dev/null"
+                        cmd | getline epoch_ts
+                        close(cmd)
+                        epoch_cache[ts] = epoch_ts
+                    } else {
+                        epoch_ts = epoch_cache[ts]
+                    }
+                    
+                    if (!(user in users) || epoch_ts > users[user]) {
+                        users[user] = epoch_ts
+                    }
+                }
+            }
+        }
+        END {
+            for (user in users) {
+                print user "|" users[user]
+            }
+        }
+        ')
     fi
 }
 
@@ -958,23 +1035,13 @@ list_users() {
         
         # Calculate logical size (sum of all files in uploads + all snapshots)
         local uploads_logical=$(get_apparent_size "$home_dir/uploads")
-        local snapshots_logical="0.00"
         
-        # Count snapshots and calculate logical size
+        # Count snapshots and calculate logical size using shared function
         local snapshot_count=0
+        local snapshots_logical="0.00"
         if [ -d "$home_dir/versions" ]; then
             snapshot_count=$(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-            
-            # Sum logical sizes of all snapshots
-            while IFS= read -r snapshot; do
-                if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
-                    # Calculate MB directly in awk to avoid scientific notation issues
-                    local snap_mb=$(find "$snapshot" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {printf "%.2f", sum/1024/1024}')
-                    if [ -n "$snap_mb" ] && [ "$snap_mb" != "0.00" ]; then
-                        snapshots_logical=$(echo "$snapshots_logical + $snap_mb" | bc)
-                    fi
-                fi
-            done < <(find "$home_dir/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+            snapshots_logical=$(get_snapshots_logical_size "$home_dir/versions")
         fi
         
         apparent_size=$(echo "scale=2; ($uploads_logical + $snapshots_logical) / 1" | bc)
@@ -1217,17 +1284,8 @@ info_user() {
         
         if [ -d "$versions_dir" ]; then
             snapshot_count=$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-            
-            # Sum logical file sizes for all snapshots
-            while IFS= read -r snapshot; do
-                if [ -n "$snapshot" ] && [ -d "$snapshot" ]; then
-                    # Calculate MB directly in awk to avoid scientific notation issues
-                    local snapshot_mb=$(find "$snapshot" -type f -exec stat -c %s {} \; 2>/dev/null | awk '{sum+=$1} END {printf "%.2f", sum/1024/1024}')
-                    if [ -n "$snapshot_mb" ] && [ "$snapshot_mb" != "0.00" ]; then
-                        total_logical_size=$(echo "$total_logical_size + $snapshot_mb" | bc)
-                    fi
-                fi
-            done < <(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+            # Use shared function for calculating snapshot sizes
+            total_logical_size=$(get_snapshots_logical_size "$versions_dir")
         fi
         
         # Calculate logical size (what it would be without Btrfs CoW)
@@ -1796,7 +1854,7 @@ cleanup_user() {
             # Check if it's a Btrfs subvolume
             if btrfs subvolume show "$snapshot" &>/dev/null; then
                 # Make snapshot writable before deletion
-                btrfs property set -ts "$snapshot" ro false 2>/dev/null || true
+                btrfs property set -ts "$snapshot" ro false &>/dev/null || true
                 if btrfs subvolume delete "$snapshot" &>/dev/null; then
                     removed=$((removed + 1))
                 fi

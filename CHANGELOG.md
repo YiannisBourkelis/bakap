@@ -5,6 +5,28 @@ All notable changes to termiNAS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-alpha.2] - 2025-10-23
+
+### Performance Improvements
+- **Optimized `manage_users.sh` snapshot size calculations** (7-20x faster for users with many snapshots):
+  - Replaced inefficient per-snapshot iteration with single-pass `find` processing
+  - Created reusable `get_snapshots_logical_size()` function for better code maintainability
+  - Significantly improved performance for `list` and `info` commands when dealing with 100+ snapshots
+  - Users with 500+ snapshots now see results in 3-5 seconds instead of 60+ seconds
+
+### Fixed
+- **Fixed connection cache data extraction in `manage_users.sh`**:
+  - Resolved bash subshell issue preventing `CONNECTION_CACHE` array persistence
+  - Changed from pipe to process substitution to maintain parent shell context
+  - "Last SFTP" column now correctly displays actual connection times instead of "Never"
+  - Made awk scripts compatible with both GNU awk and mawk
+
+### Changed
+- **Improved `build_connection_cache()` performance**:
+  - Replaced inefficient log parsing with optimized awk single-pass processing
+  - Reduced execution time from ~8 seconds to ~1-2 seconds
+  - Added epoch timestamp caching to avoid redundant `date` command invocations
+
 ## [1.0.0-alpha.1] - 2025-10-19
 
 ### Added

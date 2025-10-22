@@ -7,7 +7,7 @@
 > **Not recommended for production use without thorough testing in your specific environment.**
 
 ## Overview
-termiNAS is a secure, versioned storage server for Debian Linux using **Btrfs copy-on-write snapshots**. It functions as both a backup server (via SFTP) and a NAS (via optional SMB support), providing real-time incremental versioning for ransomware protection. Even if a client's local machine is infected, the server-side version history remains intact and unmodifiable. Users are strictly chrooted to their home directories for security.
+termiNAS is a versioned storage server for Debian Linux using **Btrfs copy-on-write snapshots**. It functions as both a backup server (via SFTP) and a NAS (via optional SMB support), providing real-time incremental versioning for ransomware protection. Even if a client's local machine is infected, the server-side version history remains intact and unmodifiable. Users are strictly chrooted to their home directories for security.
 
 Key features:
 - **Instant Btrfs snapshots** triggered by filesystem changes (millisecond creation time).
@@ -1242,7 +1242,7 @@ Possible causes:
 Solutions:
 ```powershell
 # Option 1: Enable debug mode and check logs
-Get-Content "C:\ProgramData\terminas-logs\bakap-<jobname>.log" -Tail 100
+Get-Content "C:\ProgramData\terminas-logs\terminas-<jobname>.log" -Tail 100
 
 # Option 2: Manually provide the expected fingerprint
 # Get fingerprint from server:
