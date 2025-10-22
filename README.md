@@ -7,7 +7,7 @@
 > **Not recommended for production use without thorough testing in your specific environment.**
 
 ## Overview
-termiNAS is a secure, versioned storage server for Debian Linux using **Btrfs copy-on-write snapshots**. It functions as both a backup server (via SFTP) and a NAS (via optional SMB support), providing real-time incremental versioning for ransomware protection. Even if a client's local machine is infected, the server-side version history remains intact and unmodifiable. Users are strictly chrooted to their home directories for security.
+termiNAS is a versioned storage server for Debian Linux using **Btrfs copy-on-write snapshots**. It functions as both a backup server (via SFTP) and a NAS (via optional SMB support), providing real-time incremental versioning for ransomware protection. Even if a client's local machine is infected, the server-side version history remains intact and unmodifiable. Users are strictly chrooted to their home directories for security.
 
 Key features:
 - **Instant Btrfs snapshots** triggered by filesystem changes (millisecond creation time).
