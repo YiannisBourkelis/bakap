@@ -235,26 +235,11 @@ echo "Creating user $USERNAME with password: $PASSWORD"
 # Create user
 useradd -m -g backupusers -s /usr/sbin/nologin "$USERNAME"
 
-# Set the user's password securely. Prefer creating a SHA-512 hash and applying it with usermod -p.
-# Check that python3 exists and provides the 'crypt' module. If not, fall back to openssl,
-# and as a last resort use chpasswd (note: chpasswd will break if the password contains ':').
-if command -v python3 >/dev/null 2>&1 && python3 -c "import crypt" >/dev/null 2>&1; then
-    HASH=$(python3 - <<'PY'
-import crypt,sys
-pw=sys.stdin.read().rstrip('\n')
-print(crypt.crypt(pw, crypt.mksalt(crypt.METHOD_SHA512)))
-PY
-    ) <<<"$PASSWORD"
-    usermod -p "$HASH" "$USERNAME"
-elif command -v openssl >/dev/null 2>&1; then
-    # Fallback: openssl passwd -6
-    HASH=$(openssl passwd -6 "$PASSWORD")
-    usermod -p "$HASH" "$USERNAME"
-else
-    # As a last resort, use chpasswd (note: will fail if password contains a colon ':')
-    printf '%s:%s
-' "$USERNAME" "$PASSWORD" | chpasswd
-fi
+# Set the user's password securely using chpasswd.
+# chpasswd uses the system's default password hashing algorithm (yescrypt on modern systems).
+# This is more reliable than manually creating hashes, as it respects PAM configuration.
+# Note: chpasswd will fail if the password contains a colon ':' character.
+echo "$USERNAME:$PASSWORD" | chpasswd
 
 # Set ownership for chroot (home must be root-owned)
 chown root:root "/home/$USERNAME"
