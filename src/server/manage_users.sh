@@ -1184,11 +1184,17 @@ show_quota_user() {
         local limit_bytes=$(echo "$quota_info" | cut -d'|' -f2)
         local qgroup_id=$(echo "$quota_info" | cut -d'|' -f3)
         
-        # Ensure used_bytes is at least 0 for bc calculations
-        local used_bytes=${used_bytes:-0}
+        # Ensure values are numeric for calculations
+        used_bytes=${used_bytes:-0}
+        limit_bytes=${limit_bytes:-0}
+        
+        # Validate numeric values
+        [[ ! "$used_bytes" =~ ^[0-9]+$ ]] && used_bytes=0
+        [[ ! "$limit_bytes" =~ ^[0-9]+$ ]] && limit_bytes=0
+        
         local used_gb=$(echo "scale=2; $used_bytes / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "0.00")
         
-        if [ "$limit_bytes" = "0" ] || [ "$limit_bytes" = "none" ]; then
+        if [ "$limit_bytes" = "0" ]; then
             echo "Quota: Unlimited"
             echo "Current usage: ${used_gb}GB"
         else
