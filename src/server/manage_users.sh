@@ -1184,23 +1184,24 @@ show_quota_user() {
         local limit_bytes=$(echo "$quota_info" | cut -d'|' -f2)
         local qgroup_id=$(echo "$quota_info" | cut -d'|' -f3)
         
-        local used_gb=$(echo "scale=2; $used_bytes / 1024 / 1024 / 1024" | bc)
+        # Ensure used_bytes is at least 0 for bc calculations
+        local used_bytes=${used_bytes:-0}
+        local used_gb=$(echo "scale=2; $used_bytes / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "0.00")
         
-        if [ "$limit_bytes" = "0" ]; then
+        if [ "$limit_bytes" = "0" ] || [ "$limit_bytes" = "none" ]; then
             echo "Quota: Unlimited"
             echo "Current usage: ${used_gb}GB"
         else
-            local limit_gb=$(echo "scale=2; $limit_bytes / 1024 / 1024 / 1024" | bc)
-            local usage_pct=$(echo "scale=1; ($used_bytes / $limit_bytes) * 100" | bc)
+            local limit_gb=$(echo "scale=2; $limit_bytes / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "0.00")
+            local usage_pct=$(echo "scale=1; ($used_bytes / $limit_bytes) * 100" | bc 2>/dev/null || echo "0.0")
             local available_bytes=$((limit_bytes - used_bytes))
-            local available_gb=$(echo "scale=2; $available_bytes / 1024 / 1024 / 1024" | bc)
+            local available_gb=$(echo "scale=2; $available_bytes / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "0.00")
             
             echo "Quota limit: ${limit_gb}GB"
-            echo "Current usage: ${used_gb}GB (${usage_pct}%)"
-            echo "Available: ${available_gb}GB"
+            echo "Current usage: ${used_gb}GB (${usage_pct}% used, ${available_gb}GB available)"
             
-            # Warning if over threshold
-            if [ $(echo "$usage_pct > 90" | bc) -eq 1 ]; then
+            # Warning if over threshold (only if usage_pct is a valid number)
+            if [[ "$usage_pct" =~ ^[0-9]+\.?[0-9]*$ ]] && [ $(echo "$usage_pct > 90" | bc 2>/dev/null || echo 0) -eq 1 ]; then
                 echo ""
                 echo "⚠ WARNING: Storage usage is above 90%"
             fi
