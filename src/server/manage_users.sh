@@ -983,8 +983,13 @@ get_user_quota() {
     
     # Parse qgroup output: qgroupid rfer excl max_rfer max_excl
     # We want rfer (referenced bytes) and max_rfer (limit)
+    # Note: --raw flag gives exact byte values without unit suffixes
     local used_bytes=$(echo "$qgroup_info" | awk '{print $2}')
     local limit_bytes=$(echo "$qgroup_info" | awk '{print $4}')
+    
+    # Debug: Log the qgroup info for troubleshooting (to stderr, won't interfere with output)
+    echo "[DEBUG] qgroup_id=$qgroup_id qgroup_info=$qgroup_info" >&2
+    echo "[DEBUG] Parsed: used_bytes=$used_bytes limit_bytes=$limit_bytes" >&2
     
     # Check if limit is set (0 or none means unlimited)
     if [ "$limit_bytes" = "0" ] || [ "$limit_bytes" = "none" ] || [ -z "$limit_bytes" ]; then
