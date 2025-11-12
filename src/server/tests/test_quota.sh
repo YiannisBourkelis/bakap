@@ -320,11 +320,28 @@ echo "Creating third test file (${TEST_FILE_SIZE_MB}MB)..."
 TEST_FILE_3="/tmp/test_file_3.dat"
 dd if=/dev/urandom of="$TEST_FILE_3" bs=1M count=$TEST_FILE_SIZE_MB 2>/dev/null
 
-echo "Copying third file..."
+echo "Copying third file (will bring usage to ~87%)..."
 cp "$TEST_FILE_3" "/home/$TEST_USER/uploads/"
 chown "$TEST_USER:backupusers" "/home/$TEST_USER/uploads/test_file_3.dat"
 
-# Get snapshot count before
+echo "Waiting ${MONITOR_WAIT_TIME}s for monitor to create snapshot..."
+sleep "$MONITOR_WAIT_TIME"
+
+# Check quota - should be around 87% now (0.87GB / 1GB)
+"$SCRIPT_DIR/manage_users.sh" show-quota "$TEST_USER" > /tmp/quota_output.txt 2>&1
+current_usage=$(grep "Current usage:" /tmp/quota_output.txt | grep -oP '\d+\.\d+GB' | head -1)
+print_result "INFO" "Quota usage after third file: $current_usage"
+
+# Now create a fourth file to push over quota limit
+echo "Creating fourth test file (${TEST_FILE_SIZE_MB}MB) to exceed quota..."
+TEST_FILE_4="/tmp/test_file_4.dat"
+dd if=/dev/urandom of="$TEST_FILE_4" bs=1M count=$TEST_FILE_SIZE_MB 2>/dev/null
+
+echo "Copying fourth file (should push over 1GB limit)..."
+cp "$TEST_FILE_4" "/home/$TEST_USER/uploads/"
+chown "$TEST_USER:backupusers" "/home/$TEST_USER/uploads/test_file_4.dat"
+
+# Get snapshot count before attempting snapshot of over-quota state
 snapshot_count_before=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
 
 echo "Waiting ${MONITOR_WAIT_TIME}s for monitor to attempt snapshot..."
@@ -384,13 +401,13 @@ fi
 # TEST 8: Test snapshot creation after quota increase
 print_header "TEST 8/10: Verify Snapshot After Quota Increase"
 
-echo "Creating fourth test file (100MB)..."
-TEST_FILE_4="/tmp/test_file_4.dat"
-dd if=/dev/urandom of="$TEST_FILE_4" bs=1M count=100 2>/dev/null
+echo "Creating fifth test file (100MB)..."
+TEST_FILE_5="/tmp/test_file_5.dat"
+dd if=/dev/urandom of="$TEST_FILE_5" bs=1M count=100 2>/dev/null
 
-echo "Copying fourth file..."
-cp "$TEST_FILE_4" "/home/$TEST_USER/uploads/"
-chown "$TEST_USER:backupusers" "/home/$TEST_USER/uploads/test_file_4.dat"
+echo "Copying fifth file..."
+cp "$TEST_FILE_5" "/home/$TEST_USER/uploads/"
+chown "$TEST_USER:backupusers" "/home/$TEST_USER/uploads/test_file_5.dat"
 
 # Get snapshot count before
 snapshot_count_before=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
