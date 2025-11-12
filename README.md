@@ -684,11 +684,138 @@ The cleanup script runs daily at 3:00 AM (configurable via `CLEANUP_HOUR` in the
 sudo /var/backups/scripts/cleanup_snapshots.sh
 ```
 
+#### Storage Quota Management
+
+termiNAS supports per-user storage quotas using Btrfs qgroups to track physical disk usage across uploads and all snapshots. Quotas are **unlimited by default**.
+
+**Create user with quota:**
+```bash
+# Create user with 100GB quota
+sudo ./src/server/create_user.sh testuser --quota 100
+
+# Create user with unlimited storage (default)
+sudo ./src/server/create_user.sh testuser
+```
+
+**Manage quotas for existing users:**
+```bash
+# Set 50GB quota for user
+sudo ./src/server/manage_users.sh set-quota testuser 50
+
+# Show quota status
+sudo ./src/server/manage_users.sh show-quota testuser
+
+# Remove quota (unlimited)
+sudo ./src/server/manage_users.sh remove-quota testuser
+
+# View quota in user info
+sudo ./src/server/manage_users.sh info testuser
+```
+
+**Configure default quota for new users:**
+
+Edit `/etc/terminas-retention.conf`:
+```bash
+# Default quota for new users (GB, 0 = unlimited)
+DEFAULT_QUOTA_GB=0
+
+# Per-user quota overrides (GB)
+testuser_QUOTA_GB=50
+produser_QUOTA_GB=500
+
+# Quota warning threshold (%)
+QUOTA_WARN_THRESHOLD=90
+```
+
+**How quota enforcement works:**
+
+1. **Tracks physical disk usage** - Measures actual space used on disk (deduplicated via Btrfs CoW)
+2. **Includes uploads + all snapshots** - Total storage for user across all versions
+3. **Blocks snapshots when exceeded** - Monitor service prevents new snapshots if quota is full
+4. **Warns at 90% usage** - Logged to `/var/log/terminas.log` when threshold reached
+5. **Works for all protocols** - Enforced for SFTP, Samba, and Time Machine uploads
+
+**Example quota output:**
+```bash
+$ sudo ./src/server/manage_users.sh show-quota produser
+
+==========================================
+Quota Status for: produser
+==========================================
+
+Quota limit: 100.00GB
+Current usage: 87.34GB (87.3% used, 12.66GB available)
+
+⚠ WARNING: Storage usage is above 90%
+
+Qgroup: 1/258
+```
+
+**Monitor quota in logs:**
+```bash
+# View quota warnings and errors
+sudo tail -f /var/log/terminas.log | grep -i quota
+
+# Example log output:
+# 2025-11-12 14:30:15 WARNING: User produser approaching quota limit (92.1GB / 100.0GB, 92.1%)
+# 2025-11-12 15:45:22 ERROR: User produser is over quota (100.2GB / 100.0GB)
+# 2025-11-12 15:45:22 Snapshot creation blocked - user must free up space
+```
+
+**What happens when quota is exceeded:**
+
+- ❌ **File uploads are blocked** - All write operations fail at filesystem level
+- ❌ **No new snapshots created** until space is freed
+- 📝 All quota events logged to `/var/log/terminas.log`
+- 🔄 Automatic recovery when space becomes available
+- ⚠️ Warning logged at 90% threshold
+
+**How quota enforcement works:**
+
+Btrfs enforces quotas at the **filesystem level** for all protocols automatically:
+
+- **SFTP uploads**: Write fails with "Disk quota exceeded" error
+- **Samba uploads**: Write fails with "No space left on device" error
+- **Time Machine**: Backup fails with disk full error
+- **Snapshots**: Monitor script blocks snapshot creation when over quota
+
+No per-protocol checks needed - Btrfs handles everything uniformly.
+
+**Free up space:**
+```bash
+# Remove old snapshots (keeps only latest)
+sudo ./src/server/manage_users.sh cleanup testuser
+
+# Or adjust retention policy for user
+# Edit /etc/terminas-retention.conf:
+testuser_KEEP_DAILY=3
+testuser_KEEP_WEEKLY=2
+
+# Run cleanup manually (applies retention policy)
+sudo /var/terminas/scripts/terminas-cleanup.sh
+```
+
+**Quota best practices:**
+
+1. **Set realistic limits** based on expected data growth
+2. **Monitor usage regularly** with `show-quota` command
+3. **Configure retention policies** to match quota limits
+4. **Test quota enforcement** before deploying to production
+5. **Alert on 90% threshold** using log monitoring tools
+
+**Technical details:**
+
+- Uses Btrfs qgroups (level 1) for tracking
+- Tracks uploads subvolume + all snapshot subvolumes
+- Uses **rfer** (referenced bytes) = deduplicated size
+- Quota checked before each snapshot creation
+- Works with Btrfs Copy-on-Write (CoW) deduplication
+
 #### Monitoring
 
 **View backup activity logs:**
 ```bash
-sudo tail -f /var/log/backup_monitor.log
+sudo tail -f /var/log/terminas.log
 ```
 
 **Check monitor service status:**
@@ -1458,4 +1585,120 @@ KEEP_MONTHLY=1
 # Or disable advanced retention
 ENABLE_ADVANCED_RETENTION=false
 RETENTION_DAYS=7
+```
+
+**Problem: Quota not working / "Btrfs quotas are not enabled"**
+
+Check if quotas are enabled:
+```bash
+sudo btrfs qgroup show /home
+```
+
+If you see "ERROR: can't list qgroups: quotas not enabled", enable quotas:
+```bash
+# Enable quotas
+sudo btrfs quota enable /home
+
+# Rescan existing data (may take time on large filesystems)
+sudo btrfs quota rescan /home
+
+# Verify
+sudo btrfs qgroup show /home
+```
+
+Or re-run setup script (automatically enables quotas):
+```bash
+sudo ./src/server/setup.sh
+```
+
+**Problem: Quota shows incorrect usage / not updating**
+
+Trigger quota rescan:
+```bash
+# Rescan quota usage (may take several minutes on large filesystems)
+sudo btrfs quota rescan -w /home
+
+# Check rescan status
+sudo btrfs quota rescan -s /home
+
+# View updated quota
+sudo ./src/server/manage_users.sh show-quota username
+```
+
+**Problem: User over quota but snapshots still being created**
+
+Check monitor logs for quota enforcement:
+```bash
+# View quota-related log entries
+sudo grep -i quota /var/log/terminas.log | tail -20
+
+# Should see entries like:
+# ERROR: User testuser is over quota (50.2GB / 50.0GB)
+# Snapshot creation blocked - user must free up space
+```
+
+Verify monitor service is running:
+```bash
+sudo systemctl status terminas-monitor.service
+sudo systemctl restart terminas-monitor.service
+```
+
+**Problem: Cannot set quota / "Failed to create qgroup"**
+
+This usually means quotas are not enabled or the subvolume doesn't exist.
+
+Verify user structure:
+```bash
+# Check if uploads subvolume exists
+sudo btrfs subvolume show /home/username/uploads
+
+# Check if quotas are enabled
+sudo btrfs qgroup show /home
+
+# Get subvolume ID
+sudo btrfs subvolume list /home | grep username
+```
+
+**Problem: Quota reached but files still uploading**
+
+This is expected behavior - quota only blocks **snapshot creation**, not uploads:
+
+- ✅ Users can continue uploading files via SFTP/Samba
+- ❌ New snapshots are blocked until space is freed
+- 📸 Latest snapshot remains accessible for restores
+- 🧹 Free space by removing old snapshots: `./manage_users.sh cleanup username`
+
+**Problem: Quota usage doesn't match disk usage**
+
+Quota tracks **referenced bytes** (deduplicated), not **exclusive bytes**:
+
+```bash
+# View detailed Btrfs usage
+sudo btrfs filesystem du -s /home/username/
+
+# Compare with quota
+sudo ./src/server/manage_users.sh show-quota username
+
+# Quota uses "rfer" (referenced) which includes:
+# - Data in uploads subvolume
+# - Data in all snapshot subvolumes
+# - With Btrfs CoW deduplication applied
+```
+
+**Test quota functionality:**
+
+Run the comprehensive test suite:
+```bash
+cd /opt/terminas/src/server/tests
+sudo ./test_quota.sh
+
+# This will:
+# - Create test user with 1GB quota
+# - Upload files to test enforcement
+# - Verify quota blocking works
+# - Test quota modification
+# - Clean up test user
+
+# Cleanup test user
+sudo ./test_quota.sh --cleanup-only
 ```

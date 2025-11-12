@@ -95,6 +95,21 @@ fi
 echo "✓ Btrfs filesystem detected on /home"
 echo ""
 
+# Enable Btrfs quotas on /home filesystem
+echo "Enabling Btrfs quotas on /home..."
+if btrfs qgroup show /home &>/dev/null; then
+    echo "  ✓ Btrfs quotas already enabled"
+else
+    if btrfs quota enable /home; then
+        echo "  ✓ Enabled Btrfs quotas"
+        echo "  Note: Quota tracking may take a few minutes to initialize for existing data"
+    else
+        echo "  ⚠ WARNING: Failed to enable Btrfs quotas"
+        echo "  Quota management will not be available"
+    fi
+fi
+echo ""
+
 # Update system
 echo "Updating system packages..."
 apt update && apt upgrade -y
@@ -604,6 +619,59 @@ while read path event; do
             exit 0
         fi
         
+        # Check quota before creating snapshot
+        # Note: Btrfs quotas are enforced at filesystem level, so even if we allow the
+        # snapshot here, Btrfs will reject it if it would exceed quota. This pre-check
+        # provides clearer logging for administrators.
+        if btrfs qgroup show /home &>/dev/null; then
+            # Get subvolume ID for uploads subvolume and check quota
+            subvol_id=\$(btrfs subvolume show "/home/\$user/uploads" 2>/dev/null | grep -oP 'Subvolume ID:\\s+\\K[0-9]+' || echo "")
+            
+            if [ -n "\$subvol_id" ]; then
+                qgroup_id="1/\$subvol_id"
+                
+                # Get quota info (raw bytes)
+                qgroup_info=\$(btrfs qgroup show --raw /home 2>/dev/null | grep "^\${qgroup_id}\\s" || echo "")
+                
+                if [ -n "\$qgroup_info" ]; then
+                    # Parse: qgroupid rfer excl max_rfer max_excl
+                    used_bytes=\$(echo "\$qgroup_info" | awk '{print \$2}')
+                    limit_bytes=\$(echo "\$qgroup_info" | awk '{print \$4}')
+                    
+                    # Check if limit is set
+                    if [ "\$limit_bytes" != "0" ] && [ "\$limit_bytes" != "none" ] && [ -n "\$limit_bytes" ]; then
+                        # Calculate available space
+                        available_bytes=\$((limit_bytes - used_bytes))
+                        
+                        # Reject snapshot if already at or over quota
+                        if [ "\$available_bytes" -le 0 ]; then
+                            # Over quota - reject snapshot
+                            used_gb=\$(echo "scale=2; \$used_bytes / 1024 / 1024 / 1024" | bc)
+                            limit_gb=\$(echo "scale=2; \$limit_bytes / 1024 / 1024 / 1024" | bc)
+                            echo "\$(date '+%F %T') ERROR: User \$user is at/over quota (\${used_gb}GB / \${limit_gb}GB)" >> "\$LOG"
+                            echo "\$(date '+%F %T') Snapshot creation blocked - user must free up space" >> "\$LOG"
+                            rm -f "\$processing_file" 2>/dev/null || true
+                            exit 0
+                        fi
+                        
+                        # Note: We cannot accurately predict snapshot size before creation due to
+                        # Btrfs Copy-on-Write. Snapshots initially share blocks with uploads subvolume
+                        # (minimal space), only diverging as files are modified. Btrfs will enforce
+                        # quota at filesystem level if snapshot would exceed limit.
+                        
+                        # Check warning threshold
+                        usage_pct=\$(echo "scale=1; (\$used_bytes / \$limit_bytes) * 100" | bc)
+                        if [ \$(echo "\$usage_pct > 90" | bc) -eq 1 ]; then
+                            used_gb=\$(echo "scale=2; \$used_bytes / 1024 / 1024 / 1024" | bc)
+                            limit_gb=\$(echo "scale=2; \$limit_bytes / 1024 / 1024 / 1024" | bc)
+                            available_gb=\$(echo "scale=2; \$available_bytes / 1024 / 1024 / 1024" | bc)
+                            echo "\$(date '+%F %T') WARNING: User \$user approaching quota limit (\${used_gb}GB / \${limit_gb}GB, \${usage_pct}%, \${available_gb}GB available)" >> "\$LOG"
+                        fi
+                    fi
+                fi
+            fi
+        fi
+        
         # Force filesystem sync to ensure all buffered data is written to disk
         sync
         
@@ -766,6 +834,24 @@ KEEP_MONTHLY=6      # Keep last 6 monthly snapshots (one per month)
 
 # Run cleanup at this hour (0-23)
 CLEANUP_HOUR=3
+
+# ============================================================================
+# Quota Configuration
+# ============================================================================
+# Btrfs quotas limit total disk usage (uploads + all snapshots) per user
+# Quotas are disabled by default when creating users (unlimited storage)
+
+# Default quota for new users (in GB, 0 = unlimited)
+DEFAULT_QUOTA_GB=0
+
+# Per-user quota overrides (in GB)
+# Example:
+#   testuser_QUOTA_GB=50
+#   produser_QUOTA_GB=500
+
+# Quota warning threshold (percentage)
+# Log warning when user reaches this % of quota
+QUOTA_WARN_THRESHOLD=90
 CONF
 else
     echo "Retention policy configuration already exists, preserving existing settings"

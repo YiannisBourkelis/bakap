@@ -159,16 +159,18 @@ EOF
 
 # Parse command line arguments
 if [ $# -lt 1 ]; then
-    echo "Usage: $0 <username> [-p|--password <password>] [-s|--samba] [-t|--timemachine]"
+    echo "Usage: $0 <username> [-p|--password <password>] [-s|--samba] [-t|--timemachine] [-q|--quota <GB>]"
     echo ""
     echo "Options:"
     echo "  -p, --password     Manually specify password (must be 30+ chars with lowercase, uppercase, and numbers)"
     echo "  -s, --samba        Enable Samba (SMB) sharing for uploads directory"
     echo "  -t, --timemachine  Enable macOS Time Machine support (requires --samba)"
+    echo "  -q, --quota        Set storage quota in GB (0 = unlimited, default from /etc/terminas-retention.conf)"
     echo ""
     echo "If no password is provided, a secure 64-character random password will be generated."
     echo "Samba sharing allows other applications to use the uploads directory as a network share."
     echo "Time Machine support enables macOS backup functionality via Samba."
+    echo "Quota limits total disk usage (uploads + all snapshots) tracked via Btrfs qgroups."
     exit 1
 fi
 
@@ -176,6 +178,7 @@ USERNAME=$1
 PASSWORD=""
 ENABLE_SAMBA=false
 ENABLE_TIMEMACHINE=false
+QUOTA_GB=""
 
 # Parse optional parameters
 shift
@@ -197,9 +200,21 @@ while [ $# -gt 0 ]; do
             ENABLE_TIMEMACHINE=true
             shift
             ;;
+        -q|--quota)
+            if [ -z "${2:-}" ]; then
+                echo "ERROR: --quota requires a value (quota in GB)"
+                exit 1
+            fi
+            if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                echo "ERROR: --quota must be a positive integer (GB)"
+                exit 1
+            fi
+            QUOTA_GB="$2"
+            shift 2
+            ;;
         *)
             echo "ERROR: Unknown parameter: $1"
-            echo "Usage: $0 <username> [-p|--password <password>] [-s|--samba] [-t|--timemachine]"
+            echo "Usage: $0 <username> [-p|--password <password>] [-s|--samba] [-t|--timemachine] [-q|--quota <GB>]"
             exit 1
             ;;
     esac
@@ -267,6 +282,61 @@ chmod 700 "/home/$USERNAME/uploads"
 chown root:backupusers "/home/$USERNAME/versions"
 chmod 755 "/home/$USERNAME/versions"
 
+# Setup Btrfs quota for user (if requested or configured)
+if [ -z "$QUOTA_GB" ]; then
+    # Load default quota from config file
+    if [ -f /etc/terminas-retention.conf ]; then
+        source /etc/terminas-retention.conf
+        QUOTA_GB="${DEFAULT_QUOTA_GB:-0}"
+    else
+        QUOTA_GB=0
+    fi
+fi
+
+if [ "$QUOTA_GB" -gt 0 ]; then
+    echo "Setting up Btrfs quota: ${QUOTA_GB}GB..."
+    
+    # Check if quotas are enabled
+    if ! btrfs qgroup show /home &>/dev/null; then
+        echo "  ⚠ WARNING: Btrfs quotas not enabled on /home"
+        echo "  Run setup.sh to enable quotas, or manually: btrfs quota enable /home"
+        echo "  Skipping quota setup"
+    else
+        # Get the qgroup ID for the uploads subvolume (this is what actually holds data)
+        UPLOADS_QGROUP=$(btrfs subvolume show "/home/$USERNAME/uploads" 2>/dev/null | grep -oP 'Subvolume ID:\s+\K[0-9]+' || echo "")
+        
+        if [ -n "$UPLOADS_QGROUP" ]; then
+            # Create level 1 qgroup for tracking (1/<subvol_id>)
+            # This will track the uploads subvolume + all snapshot subvolumes under versions/
+            USER_QGROUP="1/$UPLOADS_QGROUP"
+            
+            # Create the qgroup
+            if btrfs qgroup create "$USER_QGROUP" /home 2>/dev/null; then
+                echo "  ✓ Created qgroup: $USER_QGROUP"
+            fi
+            
+            # Assign the uploads subvolume's qgroup (0/<subvol_id>) to our tracking qgroup
+            # Btrfs automatically assigns snapshot qgroups when snapshots are created
+            if btrfs qgroup assign "0/$UPLOADS_QGROUP" "$USER_QGROUP" /home 2>/dev/null; then
+                echo "  ✓ Assigned uploads subvolume to qgroup"
+            fi
+            
+            # Set quota limit (convert GB to bytes)
+            # This limit applies to referenced data (deduplicated size across all subvolumes)
+            QUOTA_BYTES=$((QUOTA_GB * 1024 * 1024 * 1024))
+            if btrfs qgroup limit "$QUOTA_BYTES" "$USER_QGROUP" /home 2>/dev/null; then
+                echo "  ✓ Set quota limit: ${QUOTA_GB}GB"
+            else
+                echo "  ⚠ WARNING: Failed to set quota limit"
+            fi
+        else
+            echo "  ⚠ WARNING: Could not determine subvolume ID for quota setup"
+        fi
+    fi
+elif [ "$QUOTA_GB" -eq 0 ]; then
+    echo "Quota: Unlimited (not enforced)"
+fi
+
 # Setup Samba share if requested
 if [ "$ENABLE_SAMBA" = "true" ]; then
     if ! setup_samba_share "$USERNAME" "$PASSWORD" "$ENABLE_TIMEMACHINE"; then
@@ -298,6 +368,14 @@ else
     echo "User $USERNAME created successfully."
 fi
 
-echo "Upload subvolume: /home/$USERNAME/uploads (Btrfs subvolume)"
-echo "Versions directory: /home/$USERNAME/versions (read-only Btrfs snapshots)"
+echo ""
+echo "Configuration:"
+echo "  Upload subvolume: /home/$USERNAME/uploads (Btrfs subvolume)"
+echo "  Versions directory: /home/$USERNAME/versions (read-only Btrfs snapshots)"
+if [ "$QUOTA_GB" -gt 0 ]; then
+    echo "  Storage quota: ${QUOTA_GB}GB (uploads + all snapshots)"
+else
+    echo "  Storage quota: Unlimited"
+fi
+echo ""
 echo "Btrfs snapshots will be created automatically on file uploads via inotify monitoring."

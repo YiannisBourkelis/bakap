@@ -77,6 +77,21 @@ if [ -f "/etc/samba/smb.conf.d/$USERNAME.conf" ]; then
     fi
 fi
 
+# Remove quota if set
+if btrfs qgroup show /home &>/dev/null; then
+    # Get subvolume ID for uploads subvolume
+    SUBVOL_ID=$(btrfs subvolume show "/home/$USERNAME/uploads" 2>/dev/null | grep -oP 'Subvolume ID:\s+\K[0-9]+' || echo "")
+    
+    if [ -n "$SUBVOL_ID" ]; then
+        # Remove level 1 qgroup if it exists
+        QGROUP_ID="1/$SUBVOL_ID"
+        if btrfs qgroup show /home 2>/dev/null | grep -q "^${QGROUP_ID}\s"; then
+            echo "Removing quota for user..."
+            btrfs qgroup destroy "$QGROUP_ID" /home 2>/dev/null || true
+        fi
+    fi
+fi
+
 # Remove the user (without -r since home is owned by root)
 userdel "$USERNAME"
 

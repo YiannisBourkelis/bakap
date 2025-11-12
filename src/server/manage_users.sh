@@ -40,6 +40,9 @@ Commands:
     cleanup-all             Cleanup all backup users (keep latest snapshot for each)
     rebuild <username>      Delete all snapshots and create fresh snapshot from uploads
     rebuild-all             Rebuild snapshots for all users (skips users with open files)
+    set-quota <username> <GB>  Set storage quota for user (0 = unlimited)
+    remove-quota <username>    Remove storage quota (unlimited)
+    show-quota <username>      Show quota usage and limit for user
     enable-samba <username> Enable Samba (SMB) sharing for an existing user
     disable-samba <username> Disable Samba (SMB) sharing for an existing user
     enable-samba-versions <username>  Enable read-only SMB access to versions (snapshots) directory
@@ -61,6 +64,9 @@ Examples:
     $SCRIPT_NAME cleanup-all
     $SCRIPT_NAME rebuild testuser
     $SCRIPT_NAME rebuild-all
+    $SCRIPT_NAME set-quota testuser 100
+    $SCRIPT_NAME remove-quota testuser
+    $SCRIPT_NAME show-quota testuser
     $SCRIPT_NAME enable-samba testuser
     $SCRIPT_NAME enable-samba-versions testuser
     $SCRIPT_NAME disable-samba-versions testuser
@@ -941,6 +947,272 @@ disable_timemachine() {
     echo "      The user can still access files via SFTP or the main SMB share."
 }
 
+# Get quota information for a user
+# Returns: used_bytes|limit_bytes|qgroup_id or empty if no quota
+get_user_quota() {
+    local username="$1"
+    local home_dir="/home/$username"
+    
+    # Check if quotas are enabled
+    if ! btrfs qgroup show /home &>/dev/null; then
+        return 1
+    fi
+    
+    # Get subvolume ID for user's uploads subvolume (this is what holds actual data)
+    # Note: /home/username is a regular directory, /home/username/uploads is the subvolume
+    local uploads_dir="$home_dir/uploads"
+    local subvol_id=$(btrfs subvolume show "$uploads_dir" 2>/dev/null | grep -oP 'Subvolume ID:\s+\K[0-9]+' || echo "")
+    
+    if [ -z "$subvol_id" ]; then
+        return 1
+    fi
+    
+    # Check for qgroup (level 1 qgroup: 1/<subvol_id>)
+    local qgroup_id="1/$subvol_id"
+    local qgroup_info=$(btrfs qgroup show --raw /home 2>/dev/null | grep "^${qgroup_id}\s" || echo "")
+    
+    if [ -z "$qgroup_info" ]; then
+        # Try level 0 qgroup as fallback
+        qgroup_id="0/$subvol_id"
+        qgroup_info=$(btrfs qgroup show --raw /home 2>/dev/null | grep "^${qgroup_id}\s" || echo "")
+    fi
+    
+    if [ -z "$qgroup_info" ]; then
+        return 1
+    fi
+    
+    # Parse qgroup output: qgroupid rfer excl max_rfer max_excl
+    # We want rfer (referenced bytes) and max_rfer (limit)
+    local used_bytes=$(echo "$qgroup_info" | awk '{print $2}')
+    local limit_bytes=$(echo "$qgroup_info" | awk '{print $4}')
+    
+    # Check if limit is set (0 or none means unlimited)
+    if [ "$limit_bytes" = "0" ] || [ "$limit_bytes" = "none" ] || [ -z "$limit_bytes" ]; then
+        limit_bytes="0"
+    fi
+    
+    echo "${used_bytes}|${limit_bytes}|${qgroup_id}"
+    return 0
+}
+
+# Set quota for a user
+set_quota_user() {
+    local username="$1"
+    local quota_gb="$2"
+    
+    if [ -z "$username" ] || [ -z "$quota_gb" ]; then
+        echo "Usage: $SCRIPT_NAME set-quota <username> <GB>"
+        return 1
+    fi
+    
+    if ! [[ "$quota_gb" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: Quota must be a positive integer (GB)"
+        return 1
+    fi
+    
+    # Verify user exists
+    if ! id "$username" &>/dev/null; then
+        echo "ERROR: User '$username' does not exist"
+        return 1
+    fi
+    
+    # Check if user is a backup user
+    if ! groups "$username" 2>/dev/null | grep -q "backupusers"; then
+        echo "ERROR: User '$username' is not a backup user"
+        return 1
+    fi
+    
+    # Check if quotas are enabled
+    if ! btrfs qgroup show /home &>/dev/null; then
+        echo "ERROR: Btrfs quotas are not enabled on /home"
+        echo "Run setup.sh to enable quotas, or manually: btrfs quota enable /home"
+        return 1
+    fi
+    
+    local home_dir="/home/$username"
+    local uploads_dir="$home_dir/uploads"
+    
+    # Get subvolume ID for uploads subvolume
+    local subvol_id=$(btrfs subvolume show "$uploads_dir" 2>/dev/null | grep -oP 'Subvolume ID:\s+\K[0-9]+' || echo "")
+    
+    if [ -z "$subvol_id" ]; then
+        echo "ERROR: Could not determine subvolume ID for $uploads_dir"
+        return 1
+    fi
+    
+    # Create/use level 1 qgroup for tracking
+    local qgroup_id="1/$subvol_id"
+    
+    # Create qgroup if it doesn't exist
+    if ! btrfs qgroup show /home 2>/dev/null | grep -q "^${qgroup_id}\s"; then
+        if ! btrfs qgroup create "$qgroup_id" /home 2>/dev/null; then
+            echo "ERROR: Failed to create qgroup $qgroup_id"
+            return 1
+        fi
+        echo "Created qgroup: $qgroup_id"
+    fi
+    
+    # Assign level 0 qgroup to level 1 if not already assigned
+    local level0_qgroup="0/$subvol_id"
+    if ! btrfs qgroup show /home 2>/dev/null | grep -q "$level0_qgroup.*$qgroup_id"; then
+        if btrfs qgroup assign "$level0_qgroup" "$qgroup_id" /home 2>/dev/null; then
+            echo "Assigned subvolume to qgroup"
+        fi
+    fi
+    
+    # Set quota limit
+    local quota_bytes=$((quota_gb * 1024 * 1024 * 1024))
+    
+    if btrfs qgroup limit "$quota_bytes" "$qgroup_id" /home 2>/dev/null; then
+        echo "✓ Set quota limit for user '$username': ${quota_gb}GB"
+        
+        # Show current usage
+        local quota_info=$(get_user_quota "$username")
+        if [ -n "$quota_info" ]; then
+            local used_bytes=$(echo "$quota_info" | cut -d'|' -f1)
+            local used_gb=$(echo "scale=2; $used_bytes / 1024 / 1024 / 1024" | bc)
+            local usage_pct=$(echo "scale=1; ($used_bytes / $quota_bytes) * 100" | bc)
+            echo "  Current usage: ${used_gb}GB (${usage_pct}%)"
+        fi
+    else
+        echo "ERROR: Failed to set quota limit"
+        return 1
+    fi
+}
+
+# Remove quota for a user (set to unlimited)
+remove_quota_user() {
+    local username="$1"
+    
+    if [ -z "$username" ]; then
+        echo "Usage: $SCRIPT_NAME remove-quota <username>"
+        return 1
+    fi
+    
+    # Verify user exists
+    if ! id "$username" &>/dev/null; then
+        echo "ERROR: User '$username' does not exist"
+        return 1
+    fi
+    
+    # Check if user is a backup user
+    if ! groups "$username" 2>/dev/null | grep -q "backupusers"; then
+        echo "ERROR: User '$username' is not a backup user"
+        return 1
+    fi
+    
+    # Check if quotas are enabled
+    if ! btrfs qgroup show /home &>/dev/null; then
+        echo "Btrfs quotas are not enabled - user already has unlimited storage"
+        return 0
+    fi
+    
+    local home_dir="/home/$username"
+    local uploads_dir="$home_dir/uploads"
+    
+    # Get subvolume ID for uploads subvolume
+    local subvol_id=$(btrfs subvolume show "$uploads_dir" 2>/dev/null | grep -oP 'Subvolume ID:\s+\K[0-9]+' || echo "")
+    
+    if [ -z "$subvol_id" ]; then
+        echo "ERROR: Could not determine subvolume ID for $uploads_dir"
+        return 1
+    fi
+    
+    local qgroup_id="1/$subvol_id"
+    
+    # Check if qgroup exists
+    if ! btrfs qgroup show /home 2>/dev/null | grep -q "^${qgroup_id}\s"; then
+        echo "User '$username' does not have a quota set"
+        return 0
+    fi
+    
+    # Remove quota limit (set to none/0)
+    if btrfs qgroup limit none "$qgroup_id" /home 2>/dev/null; then
+        echo "✓ Removed quota limit for user '$username' (unlimited storage)"
+    else
+        echo "ERROR: Failed to remove quota limit"
+        return 1
+    fi
+}
+
+# Show quota usage and limit for a user
+show_quota_user() {
+    local username="$1"
+    
+    if [ -z "$username" ]; then
+        echo "Usage: $SCRIPT_NAME show-quota <username>"
+        return 1
+    fi
+    
+    # Verify user exists
+    if ! id "$username" &>/dev/null; then
+        echo "ERROR: User '$username' does not exist"
+        return 1
+    fi
+    
+    # Check if user is a backup user
+    if ! groups "$username" 2>/dev/null | grep -q "backupusers"; then
+        echo "ERROR: User '$username' is not a backup user"
+        return 1
+    fi
+    
+    # Check if quotas are enabled
+    if ! btrfs qgroup show /home &>/dev/null; then
+        echo "=========================================="
+        echo "Quota Status for: $username"
+        echo "=========================================="
+        echo ""
+        echo "Quota: Not available (Btrfs quotas not enabled)"
+        echo ""
+        echo "To enable quotas, run: btrfs quota enable /home"
+        return 0
+    fi
+    
+    local quota_info=$(get_user_quota "$username")
+    
+    echo "=========================================="
+    echo "Quota Status for: $username"
+    echo "=========================================="
+    echo ""
+    
+    if [ -z "$quota_info" ]; then
+        echo "Quota: Unlimited (no quota set)"
+        echo ""
+        echo "To set a quota: $SCRIPT_NAME set-quota $username <GB>"
+    else
+        local used_bytes=$(echo "$quota_info" | cut -d'|' -f1)
+        local limit_bytes=$(echo "$quota_info" | cut -d'|' -f2)
+        local qgroup_id=$(echo "$quota_info" | cut -d'|' -f3)
+        
+        local used_gb=$(echo "scale=2; $used_bytes / 1024 / 1024 / 1024" | bc)
+        
+        if [ "$limit_bytes" = "0" ]; then
+            echo "Quota: Unlimited"
+            echo "Current usage: ${used_gb}GB"
+        else
+            local limit_gb=$(echo "scale=2; $limit_bytes / 1024 / 1024 / 1024" | bc)
+            local usage_pct=$(echo "scale=1; ($used_bytes / $limit_bytes) * 100" | bc)
+            local available_bytes=$((limit_bytes - used_bytes))
+            local available_gb=$(echo "scale=2; $available_bytes / 1024 / 1024 / 1024" | bc)
+            
+            echo "Quota limit: ${limit_gb}GB"
+            echo "Current usage: ${used_gb}GB (${usage_pct}%)"
+            echo "Available: ${available_gb}GB"
+            
+            # Warning if over threshold
+            if [ $(echo "$usage_pct > 90" | bc) -eq 1 ]; then
+                echo ""
+                echo "⚠ WARNING: Storage usage is above 90%"
+            fi
+        fi
+        
+        echo ""
+        echo "Qgroup: $qgroup_id"
+    fi
+    
+    echo ""
+}
+
 # List all backup users with their disk usage
 list_users() {
     local users=$(get_backup_users)
@@ -1364,6 +1636,33 @@ info_user() {
     else
         echo "Disk Usage:"
         echo "  No files uploaded yet (0.00 MB)"
+    fi
+    echo ""
+    
+    # Quota information
+    local quota_info=$(get_user_quota "$username")
+    if [ -n "$quota_info" ]; then
+        local used_bytes=$(echo "$quota_info" | cut -d'|' -f1)
+        local limit_bytes=$(echo "$quota_info" | cut -d'|' -f2)
+        
+        local used_gb=$(echo "scale=2; $used_bytes / 1024 / 1024 / 1024" | bc)
+        
+        if [ "$limit_bytes" = "0" ]; then
+            echo "Storage Quota: Unlimited (${used_gb}GB used)"
+        else
+            local limit_gb=$(echo "scale=2; $limit_bytes / 1024 / 1024 / 1024" | bc)
+            local usage_pct=$(echo "scale=1; ($used_bytes / $limit_bytes) * 100" | bc)
+            local available_bytes=$((limit_bytes - used_bytes))
+            local available_gb=$(echo "scale=2; $available_bytes / 1024 / 1024 / 1024" | bc)
+            
+            echo "Storage Quota: ${used_gb}GB / ${limit_gb}GB (${usage_pct}% used, ${available_gb}GB available)"
+            
+            if [ $(echo "$usage_pct > 90" | bc) -eq 1 ]; then
+                echo "  ⚠ WARNING: Quota usage above 90%"
+            fi
+        fi
+    else
+        echo "Storage Quota: Unlimited (no quota set)"
     fi
     echo ""
     
@@ -2304,6 +2603,30 @@ case "$command" in
         ;;
     rebuild-all)
         rebuild_all
+        ;;
+    set-quota)
+        if [ $# -lt 2 ]; then
+            echo "Error: Username and quota (GB) are required for set-quota command" >&2
+            echo "Usage: $SCRIPT_NAME set-quota <username> <GB>" >&2
+            exit 1
+        fi
+        set_quota_user "$1" "$2"
+        ;;
+    remove-quota)
+        if [ $# -eq 0 ]; then
+            echo "Error: Username is required for remove-quota command" >&2
+            usage
+            exit 1
+        fi
+        remove_quota_user "$1"
+        ;;
+    show-quota)
+        if [ $# -eq 0 ]; then
+            echo "Error: Username is required for show-quota command" >&2
+            usage
+            exit 1
+        fi
+        show_quota_user "$1"
         ;;
     enable-samba)
         if [ $# -eq 0 ]; then
