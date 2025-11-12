@@ -630,13 +630,17 @@ while read path event; do
             if [ -n "\$subvol_id" ]; then
                 qgroup_id="1/\$subvol_id"
                 
-                # Get quota info (raw bytes)
+                # Get quota usage (raw bytes)
                 qgroup_info=\$(btrfs qgroup show --raw /home 2>/dev/null | grep "^\${qgroup_id}\\s" || echo "")
+                used_bytes=\$(echo "\$qgroup_info" | awk '{print \$2}')
+                
+                # Get quota limit (need -re flag to show limit columns)
+                limit_info=\$(btrfs qgroup show --raw -re /home 2>/dev/null | grep "^\${qgroup_id}\\s" || echo "")
+                limit_bytes=\$(echo "\$limit_info" | awk '{print \$4}')
                 
                 if [ -n "\$qgroup_info" ]; then
-                    # Parse: qgroupid rfer excl max_rfer max_excl
-                    used_bytes=\$(echo "\$qgroup_info" | awk '{print \$2}')
-                    limit_bytes=\$(echo "\$qgroup_info" | awk '{print \$4}')
+                    # Parse: qgroupid rfer excl (from qgroup_info)
+                    # And: qgroupid rfer excl max_rfer max_excl (from limit_info)
                     
                     # Check if limit is set
                     if [ "\$limit_bytes" != "0" ] && [ "\$limit_bytes" != "none" ] && [ -n "\$limit_bytes" ]; then

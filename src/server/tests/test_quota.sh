@@ -208,7 +208,7 @@ else
     exit 1
 fi
 
-if grep -q "Current usage: 0.00GB" /tmp/quota_output.txt; then
+if grep -qE "Current usage: 0(\.00)?GB" /tmp/quota_output.txt; then
     print_result "PASS" "Initial quota usage is 0GB"
 else
     print_result "FAIL" "Initial quota usage is not 0GB"

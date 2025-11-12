@@ -1201,16 +1201,17 @@ show_quota_user() {
         [[ ! "$used_bytes" =~ ^[0-9]+$ ]] && used_bytes=0
         [[ ! "$limit_bytes" =~ ^[0-9]+$ ]] && limit_bytes=0
         
-        local used_gb=$(echo "scale=2; $used_bytes / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "0.00")
+        # Format bytes to GB with proper leading zeros (bc can output .XX instead of 0.XX)
+        local used_gb=$(printf "%.2f" $(echo "scale=2; $used_bytes / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "0"))
         
         if [ "$limit_bytes" = "0" ]; then
             echo "Quota: Unlimited"
             echo "Current usage: ${used_gb}GB"
         else
-            local limit_gb=$(echo "scale=2; $limit_bytes / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "0.00")
-            local usage_pct=$(echo "scale=1; ($used_bytes / $limit_bytes) * 100" | bc 2>/dev/null || echo "0.0")
+            local limit_gb=$(printf "%.2f" $(echo "scale=2; $limit_bytes / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "0"))
+            local usage_pct=$(printf "%.1f" $(echo "scale=1; ($used_bytes / $limit_bytes) * 100" | bc 2>/dev/null || echo "0"))
             local available_bytes=$((limit_bytes - used_bytes))
-            local available_gb=$(echo "scale=2; $available_bytes / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "0.00")
+            local available_gb=$(printf "%.2f" $(echo "scale=2; $available_bytes / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "0"))
             
             echo "Quota limit: ${limit_gb}GB"
             echo "Current usage: ${used_gb}GB (${usage_pct}% used, ${available_gb}GB available)"
