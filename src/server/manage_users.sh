@@ -981,17 +981,21 @@ get_user_quota() {
         return 1
     fi
     
-    # Parse qgroup output: qgroupid rfer excl max_rfer max_excl
-    # We want rfer (referenced bytes) and max_rfer (limit)
-    # Note: --raw flag gives exact byte values without unit suffixes
+    # Parse qgroup output for usage: qgroupid rfer excl
+    # Get the rfer (referenced bytes) column
     local used_bytes=$(echo "$qgroup_info" | awk '{print $2}')
-    local limit_bytes=$(echo "$qgroup_info" | awk '{print $4}')
     
-    # Debug: Log the qgroup info for troubleshooting (to stderr, won't interfere with output)
-    echo "[DEBUG] qgroup_id=$qgroup_id qgroup_info=$qgroup_info" >&2
-    echo "[DEBUG] Parsed: used_bytes=$used_bytes limit_bytes=$limit_bytes" >&2
+    # Get limit using btrfs qgroup show with limit columns
+    # Format: qgroupid rfer excl max_rfer max_excl
+    local limit_info=$(btrfs qgroup show --raw -re /home 2>/dev/null | grep "^${qgroup_id}\s" || echo "")
+    local limit_bytes=""
     
-    # Check if limit is set (0 or none means unlimited)
+    if [ -n "$limit_info" ]; then
+        # Column 4 is max_rfer (referenced data limit)
+        limit_bytes=$(echo "$limit_info" | awk '{print $4}')
+    fi
+    
+    # Check if limit is set (0, none, or empty means unlimited)
     if [ "$limit_bytes" = "0" ] || [ "$limit_bytes" = "none" ] || [ -z "$limit_bytes" ]; then
         limit_bytes="0"
     fi
