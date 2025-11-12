@@ -62,7 +62,8 @@ cleanup_test_user() {
     
     if id "$TEST_USER" &>/dev/null; then
         echo "Deleting test user..."
-        "$SCRIPT_DIR/delete_user.sh" "$TEST_USER" || true
+        # Use manage_users.sh delete which has its own confirmation
+        echo "$TEST_USER" | "$SCRIPT_DIR/manage_users.sh" delete "$TEST_USER" 2>/dev/null || true
         print_result "INFO" "Test user deleted"
     else
         print_result "INFO" "Test user does not exist, nothing to cleanup"
@@ -99,8 +100,9 @@ echo ""
 cleanup_test_user
 
 # TEST 1: Check if Btrfs quotas are enabled
-print_header "TEST 1: Verify Btrfs Quotas Enabled"
+print_header "TEST 1/10: Verify Btrfs Quotas Enabled"
 
+echo "Checking if Btrfs quotas are enabled on /home..."
 if btrfs qgroup show /home &>/dev/null; then
     print_result "PASS" "Btrfs quotas are enabled on /home"
 else
@@ -112,7 +114,7 @@ else
 fi
 
 # TEST 2: Create user with quota
-print_header "TEST 2: Create User with Quota Limit"
+print_header "TEST 2/10: Create User with Quota Limit"
 
 echo "Creating user '$TEST_USER' with ${TEST_QUOTA_GB}GB quota..."
 if "$SCRIPT_DIR/create_user.sh" "$TEST_USER" --quota "$TEST_QUOTA_GB" > /tmp/create_user_output.txt 2>&1; then
@@ -158,7 +160,7 @@ else
 fi
 
 # TEST 3: Verify quota is set correctly
-print_header "TEST 3: Verify Quota Configuration"
+print_header "TEST 3/10: Verify Quota Configuration"
 
 echo "Checking quota with show-quota command..."
 "$SCRIPT_DIR/manage_users.sh" show-quota "$TEST_USER" > /tmp/quota_output.txt 2>&1
@@ -179,7 +181,7 @@ else
 fi
 
 # TEST 4: Upload files within quota
-print_header "TEST 4: Upload Files Within Quota Limit"
+print_header "TEST 4/10: Upload Files Within Quota Limit"
 
 echo "Creating test file (${TEST_FILE_SIZE_MB}MB)..."
 TEST_FILE_1="/tmp/test_file_1.dat"
@@ -205,14 +207,21 @@ else
 fi
 
 echo "Waiting ${MONITOR_WAIT_TIME}s for monitor to create snapshot..."
+
+# Get snapshot count before
+snapshot_count_before=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+
 sleep "$MONITOR_WAIT_TIME"
 
-# Check if snapshot was created
-snapshot_count=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-if [ "$snapshot_count" -gt 0 ]; then
-    print_result "PASS" "Snapshot created automatically ($snapshot_count snapshot)"
+# Get snapshot count after
+snapshot_count_after=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+
+if [ "$snapshot_count_after" -gt "$snapshot_count_before" ]; then
+    print_result "PASS" "Snapshot created automatically ($snapshot_count_after total)"
 else
     print_result "FAIL" "No snapshot created (monitor may not be running)"
+    print_result "INFO" "Check: systemctl status terminas-monitor.service"
+    print_result "INFO" "Check: tail -50 /var/log/terminas.log"
     # Don't exit - continue with tests
 fi
 
@@ -222,7 +231,7 @@ current_usage=$(grep "Current usage:" /tmp/quota_output.txt | grep -oP '\d+\.\d+
 print_result "INFO" "Quota usage after first file: $current_usage"
 
 # TEST 5: Upload more files to approach quota limit
-print_header "TEST 5: Upload Files to Approach Quota Limit"
+print_header "TEST 5/10: Upload Files to Approach Quota Limit (90%+ Warning)"
 
 echo "Creating second test file (${TEST_FILE_SIZE_MB}MB)..."
 TEST_FILE_2="/tmp/test_file_2.dat"
@@ -233,7 +242,20 @@ cp "$TEST_FILE_2" "/home/$TEST_USER/uploads/"
 chown "$TEST_USER:backupusers" "/home/$TEST_USER/uploads/test_file_2.dat"
 
 echo "Waiting ${MONITOR_WAIT_TIME}s for monitor to create snapshot..."
+
+# Get snapshot count before
+snapshot_count_before=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+
 sleep "$MONITOR_WAIT_TIME"
+
+# Get snapshot count after
+snapshot_count_after=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+
+if [ "$snapshot_count_after" -gt "$snapshot_count_before" ]; then
+    print_result "PASS" "Second snapshot created ($snapshot_count_after total)"
+else
+    print_result "FAIL" "No second snapshot created"
+fi
 
 # Check quota usage
 "$SCRIPT_DIR/manage_users.sh" show-quota "$TEST_USER" > /tmp/quota_output.txt 2>&1
@@ -256,7 +278,7 @@ else
 fi
 
 # TEST 6: Try to exceed quota limit
-print_header "TEST 6: Test Quota Enforcement (Exceed Limit)"
+print_header "TEST 6/10: Test Quota Enforcement (Snapshot Blocked)"
 
 echo "Creating third test file (${TEST_FILE_SIZE_MB}MB)..."
 TEST_FILE_3="/tmp/test_file_3.dat"
@@ -266,22 +288,37 @@ echo "Copying third file..."
 cp "$TEST_FILE_3" "/home/$TEST_USER/uploads/"
 chown "$TEST_USER:backupusers" "/home/$TEST_USER/uploads/test_file_3.dat"
 
+# Get snapshot count before
+snapshot_count_before=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+
 echo "Waiting ${MONITOR_WAIT_TIME}s for monitor to attempt snapshot..."
 sleep "$MONITOR_WAIT_TIME"
 
-# Check if snapshot was blocked
+# Get snapshot count after
+snapshot_count_after=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+
+# Check if snapshot was blocked (count should remain the same)
+if [ "$snapshot_count_after" -eq "$snapshot_count_before" ]; then
+    print_result "PASS" "Snapshot was blocked (count unchanged: $snapshot_count_after)"
+else
+    print_result "FAIL" "Snapshot was NOT blocked (count increased to $snapshot_count_after)"
+fi
+
+# Check logs for quota error
 tail -100 /var/log/terminas.log > /tmp/recent_log.txt
 
-if grep -q "ERROR.*over quota" /tmp/recent_log.txt; then
-    print_result "PASS" "Snapshot creation blocked due to quota exceeded"
+if grep -q "ERROR.*over quota\|at/over quota" /tmp/recent_log.txt; then
+    print_result "PASS" "Quota error logged in terminas.log"
 else
-    print_result "FAIL" "Quota enforcement not working - snapshot should be blocked"
+    print_result "FAIL" "Quota error NOT found in logs"
+    print_result "INFO" "Last 10 lines of log:"
+    tail -10 /var/log/terminas.log | sed 's/^/    /'
 fi
 
 if grep -q "Snapshot creation blocked - user must free up space" /tmp/recent_log.txt; then
     print_result "PASS" "Proper error message logged"
 else
-    print_result "INFO" "Expected error message not found in logs"
+    print_result "INFO" "Expected blocking message not found in logs"
 fi
 
 # Check quota status
@@ -290,7 +327,7 @@ print_result "INFO" "Final quota status:"
 cat /tmp/quota_output.txt | grep -E "Quota limit|Current usage|Available|WARNING"
 
 # TEST 7: Test quota modification
-print_header "TEST 7: Test Quota Modification"
+print_header "TEST 7/10: Test Quota Modification (Increase Limit)"
 
 echo "Increasing quota to 2GB..."
 if "$SCRIPT_DIR/manage_users.sh" set-quota "$TEST_USER" 2 > /tmp/set_quota_output.txt 2>&1; then
@@ -309,7 +346,7 @@ else
 fi
 
 # TEST 8: Test snapshot creation after quota increase
-print_header "TEST 8: Verify Snapshot Creation After Quota Increase"
+print_header "TEST 8/10: Verify Snapshot After Quota Increase"
 
 echo "Creating fourth test file (100MB)..."
 TEST_FILE_4="/tmp/test_file_4.dat"
@@ -319,23 +356,26 @@ echo "Copying fourth file..."
 cp "$TEST_FILE_4" "/home/$TEST_USER/uploads/"
 chown "$TEST_USER:backupusers" "/home/$TEST_USER/uploads/test_file_4.dat"
 
+# Get snapshot count before
+snapshot_count_before=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+
 echo "Waiting ${MONITOR_WAIT_TIME}s for monitor to create snapshot..."
 sleep "$MONITOR_WAIT_TIME"
 
-# Count snapshots
-snapshot_count_before=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-print_result "INFO" "Total snapshots now: $snapshot_count_before"
+# Get snapshot count after
+snapshot_count_after=$(find "/home/$TEST_USER/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
 
-# Check if new snapshot was created after quota increase
-tail -50 /var/log/terminas.log | grep "$TEST_USER" | tail -5 > /tmp/recent_user_log.txt
-if grep -q "Btrfs snapshot created for $TEST_USER" /tmp/recent_user_log.txt; then
-    print_result "PASS" "Snapshot created successfully after quota increase"
+# Check if snapshot was created after quota increase
+if [ "$snapshot_count_after" -gt "$snapshot_count_before" ]; then
+    print_result "PASS" "Snapshot created after quota increase ($snapshot_count_after total)"
 else
-    print_result "INFO" "No recent snapshot created (check logs)"
+    print_result "FAIL" "No snapshot created after quota increase"
+    print_result "INFO" "Last 20 log lines:"
+    tail -20 /var/log/terminas.log | sed 's/^/    /'
 fi
 
 # TEST 9: Test quota removal
-print_header "TEST 9: Test Quota Removal (Unlimited)"
+print_header "TEST 9/10: Test Quota Removal (Set to Unlimited)"
 
 echo "Removing quota limit..."
 if "$SCRIPT_DIR/manage_users.sh" remove-quota "$TEST_USER" > /tmp/remove_quota_output.txt 2>&1; then
@@ -354,7 +394,7 @@ else
 fi
 
 # TEST 10: Verify quota info in user info command
-print_header "TEST 10: Verify Quota in Info Command"
+print_header "TEST 10/10: Verify Quota Display in Info Command"
 
 echo "Checking user info..."
 "$SCRIPT_DIR/manage_users.sh" info "$TEST_USER" > /tmp/info_output.txt 2>&1
