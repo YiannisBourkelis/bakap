@@ -33,6 +33,28 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Check for required dependencies
+echo "Checking dependencies..."
+missing_deps=()
+
+if ! command -v bc &>/dev/null; then
+    missing_deps+=("bc")
+fi
+
+if ! command -v btrfs &>/dev/null; then
+    missing_deps+=("btrfs-progs")
+fi
+
+if [ ${#missing_deps[@]} -gt 0 ]; then
+    echo -e "${RED}ERROR: Missing required dependencies: ${missing_deps[*]}${NC}"
+    echo ""
+    echo "Please install missing packages:"
+    echo "  apt install ${missing_deps[*]}"
+    echo ""
+    echo "Or re-run setup.sh to install all dependencies"
+    exit 1
+fi
+
 # Function to print section header
 print_header() {
     echo ""
@@ -163,12 +185,25 @@ fi
 print_header "TEST 3/10: Verify Quota Configuration"
 
 echo "Checking quota with show-quota command..."
-"$SCRIPT_DIR/manage_users.sh" show-quota "$TEST_USER" > /tmp/quota_output.txt 2>&1
+if timeout 30 "$SCRIPT_DIR/manage_users.sh" show-quota "$TEST_USER" > /tmp/quota_output.txt 2>&1; then
+    print_result "PASS" "show-quota command completed successfully"
+else
+    exit_code=$?
+    if [ $exit_code -eq 124 ]; then
+        print_result "FAIL" "show-quota command timed out after 30 seconds"
+    else
+        print_result "FAIL" "show-quota command failed with exit code $exit_code"
+    fi
+    print_result "INFO" "Output:"
+    cat /tmp/quota_output.txt
+    exit 1
+fi
 
 if grep -q "Quota limit: ${TEST_QUOTA_GB}" /tmp/quota_output.txt; then
     print_result "PASS" "Quota limit is correctly set to ${TEST_QUOTA_GB}GB"
 else
     print_result "FAIL" "Quota limit not set correctly"
+    print_result "INFO" "Output:"
     cat /tmp/quota_output.txt
     exit 1
 fi
@@ -177,6 +212,7 @@ if grep -q "Current usage: 0.00GB" /tmp/quota_output.txt; then
     print_result "PASS" "Initial quota usage is 0GB"
 else
     print_result "FAIL" "Initial quota usage is not 0GB"
+    print_result "INFO" "Output:"
     cat /tmp/quota_output.txt
 fi
 
