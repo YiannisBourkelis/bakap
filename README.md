@@ -681,7 +681,7 @@ The cleanup script runs daily at 3:00 AM (configurable via `CLEANUP_HOUR` in the
 
 **Manual cleanup:**
 ```bash
-sudo /var/backups/scripts/cleanup_snapshots.sh
+sudo /var/terminas/scripts/terminas-cleanup.sh
 ```
 
 #### Storage Quota Management
@@ -1352,8 +1352,8 @@ To modify or extend the scripts:
 - `src/server/manage_users.sh` - User and snapshot management
 - `src/client/windows/upload.ps1` - Windows PowerShell upload client
 - `src/client/linux/upload.sh` - Linux Bash upload client
-- `/var/backups/scripts/monitor_backups.sh` - Real-time snapshot monitor (created by setup)
-- `/var/backups/scripts/cleanup_snapshots.sh` - Retention policy cleanup (created by setup)
+- `/var/terminas/scripts/monitor_backups.sh` - Real-time snapshot monitor (created by setup)
+- `/var/terminas/scripts/terminas-cleanup.sh` - Retention policy cleanup (created by setup)
 - `/etc/terminas-retention.conf` - Retention configuration (created by setup)
 
 ## Troubleshooting
@@ -1482,7 +1482,7 @@ sudo ./src/server/setup.sh
 sudo systemctl restart terminas-monitor.service
 
 # Verify new logic is applied
-sudo grep "Excluding in-progress" /var/backups/scripts/monitor_backups.sh
+sudo grep "Excluding in-progress" /var/terminas/scripts/monitor_backups.sh
 ```
 
 **Monitor the snapshot process:**
@@ -1572,7 +1572,7 @@ sudo sysctl -p
 
 Manually trigger cleanup:
 ```bash
-sudo /var/backups/scripts/cleanup_snapshots.sh
+sudo /var/terminas/scripts/terminas-cleanup.sh
 ```
 
 Adjust retention policy in `/etc/terminas-retention.conf`:
