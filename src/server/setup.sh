@@ -930,9 +930,11 @@ cleanup_advanced() {
         [ ! -d "$versions_dir" ] && continue
         
         # Check for per-user retention settings
-        local user_daily_var="${user}_KEEP_DAILY"
-        local user_weekly_var="${user}_KEEP_WEEKLY"
-        local user_monthly_var="${user}_KEEP_MONTHLY"
+        # Sanitize username for variable names (replace hyphens with underscores)
+        local user_safe="${user//-/_}"
+        local user_daily_var="${user_safe}_KEEP_DAILY"
+        local user_weekly_var="${user_safe}_KEEP_WEEKLY"
+        local user_monthly_var="${user_safe}_KEEP_MONTHLY"
         local user_daily=${!user_daily_var:-$KEEP_DAILY}
         local user_weekly=${!user_weekly_var:-$KEEP_WEEKLY}
         local user_monthly=${!user_monthly_var:-$KEEP_MONTHLY}
