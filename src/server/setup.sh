@@ -909,8 +909,20 @@ cleanup_by_age() {
 cleanup_advanced() {
     log_msg "Running advanced retention cleanup (default: daily=$KEEP_DAILY, weekly=$KEEP_WEEKLY, monthly=$KEEP_MONTHLY)"
     
-    # Get list of backup users
-    local users=$(getent group backupusers 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -v '^$')
+    # Get list of backup users (both primary group members and supplementary group members)
+    local gid=$(getent group backupusers 2>/dev/null | cut -d: -f3)
+    local users=""
+    
+    # Get users whose primary group is backupusers
+    if [ -n "$gid" ]; then
+        users=$(getent passwd | awk -F: -v gid="$gid" '$4 == gid {print $1}')
+    fi
+    
+    # Also get users who have backupusers as supplementary group
+    local supp_users=$(getent group backupusers 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -v '^$')
+    if [ -n "$supp_users" ]; then
+        users=$(echo -e "$users\n$supp_users" | sort -u)
+    fi
     
     while IFS= read -r user; do
         [ -z "$user" ] && continue
