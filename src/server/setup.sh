@@ -994,7 +994,7 @@ cleanup_advanced() {
         done
         
         [ $removed -gt 0 ] && log_msg "User $user: removed $removed snapshots"
-    done
+    done <<< "$users"
 }
 
 # Main cleanup logic
