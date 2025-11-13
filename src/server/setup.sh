@@ -940,38 +940,47 @@ cleanup_advanced() {
             [ -n "$s" ] && snapshot_array+=("$s")
         done <<< "$snapshots"
         
-        # Keep last N daily snapshots
+        # GFS (Grandfather-Father-Son) retention strategy:
+        # 1. Keep last N daily snapshots (recent backups)
+        # 2. Keep one snapshot per week for N weeks (excluding dailies)
+        # 3. Keep one snapshot per month for N months (excluding dailies and weeklies)
+        
+        # Mark last N daily snapshots
         local daily_count=0
         for snapshot in "${snapshot_array[@]}"; do
             [ $daily_count -ge $user_daily ] && break
-            keep_snapshots["$snapshot"]=1
+            keep_snapshots["$snapshot"]="daily"
             daily_count=$((daily_count + 1))
         done
         
-        # Keep last N weekly snapshots (one per week)
+        # Mark last N weekly snapshots (one per week, skip if already kept as daily)
         local weekly_count=0
         local last_week=""
         for snapshot in "${snapshot_array[@]}"; do
             [ $weekly_count -ge $user_weekly ] && break
+            [ -n "${keep_snapshots[$snapshot]}" ] && continue  # Already kept as daily
+            
             # Extract date from snapshot name (format: YYYY-MM-DD_HH-MM-SS)
             local snap_date=$(basename "$snapshot" | cut -d_ -f1)
             local week=$(date -d "$snap_date" +%Y-W%U 2>/dev/null || echo "")
             if [ -n "$week" ] && [ "$week" != "$last_week" ]; then
-                keep_snapshots["$snapshot"]=1
+                keep_snapshots["$snapshot"]="weekly"
                 last_week="$week"
                 weekly_count=$((weekly_count + 1))
             fi
         done
         
-        # Keep last N monthly snapshots (one per month)
+        # Mark last N monthly snapshots (one per month, skip if already kept as daily/weekly)
         local monthly_count=0
         local last_month=""
         for snapshot in "${snapshot_array[@]}"; do
             [ $monthly_count -ge $user_monthly ] && break
+            [ -n "${keep_snapshots[$snapshot]}" ] && continue  # Already kept as daily/weekly
+            
             local snap_date=$(basename "$snapshot" | cut -d_ -f1)
             local month=$(date -d "$snap_date" +%Y-%m 2>/dev/null || echo "")
             if [ -n "$month" ] && [ "$month" != "$last_month" ]; then
-                keep_snapshots["$snapshot"]=1
+                keep_snapshots["$snapshot"]="monthly"
                 last_month="$month"
                 monthly_count=$((monthly_count + 1))
             fi
@@ -979,21 +988,33 @@ cleanup_advanced() {
         
         # Remove snapshots not in keep list
         local removed=0
+        local kept=0
         for snapshot in "${snapshot_array[@]}"; do
+            local snap_name=$(basename "$snapshot")
             if [ -z "${keep_snapshots[$snapshot]}" ]; then
                 # Check if it's a Btrfs subvolume before deleting
                 if btrfs subvolume show "$snapshot" &>/dev/null; then
                     # Make snapshot writable before deletion
                     btrfs property set -ts "$snapshot" ro false 2>/dev/null || true
-                    btrfs subvolume delete "$snapshot" &>/dev/null && removed=$((removed + 1))
+                    if btrfs subvolume delete "$snapshot" &>/dev/null; then
+                        log_msg "User $user: deleted snapshot $snap_name"
+                        removed=$((removed + 1))
+                    fi
                 else
                     # Fallback for non-subvolume directories (shouldn't happen)
-                    rm -rf "$snapshot" && removed=$((removed + 1))
+                    if rm -rf "$snapshot"; then
+                        log_msg "User $user: deleted snapshot $snap_name"
+                        removed=$((removed + 1))
+                    fi
                 fi
+            else
+                kept=$((kept + 1))
             fi
         done
         
-        [ $removed -gt 0 ] && log_msg "User $user: removed $removed snapshots"
+        if [ $removed -gt 0 ] || [ $kept -gt 0 ]; then
+            log_msg "User $user: kept $kept snapshots, removed $removed snapshots"
+        fi
     done <<< "$users"
 }
 
