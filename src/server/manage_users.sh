@@ -573,7 +573,7 @@ enable_samba() {
    # VFS audit module for tracking SMB file operations
    vfs objects = full_audit
    full_audit:prefix = %u|%I|%m
-   full_audit:success = connect disconnect openat closefn write pwrite mkdirat unlinkat renameat
+   full_audit:success = connect disconnect write pwrite
    full_audit:failure = none
    full_audit:facility = local5
    full_audit:priority = notice
@@ -714,7 +714,7 @@ enable_samba_versions() {
    # VFS audit module for tracking access
    vfs objects = full_audit
    full_audit:prefix = %u|%I|%m|versions
-   full_audit:success = connect disconnect open readdir
+   full_audit:success = connect disconnect
    full_audit:failure = none
    full_audit:facility = local5
    full_audit:priority = notice
@@ -861,7 +861,7 @@ enable_timemachine() {
    fruit:time machine max size = 0
    # VFS audit module for tracking Time Machine connections
    full_audit:prefix = %u|%I|%m|timemachine
-   full_audit:success = connect disconnect open close write pwrite
+   full_audit:success = connect disconnect write pwrite
    full_audit:failure = connect
    full_audit:facility = local1
    full_audit:priority = notice
