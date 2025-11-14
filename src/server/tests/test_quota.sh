@@ -228,8 +228,9 @@ print_header "TEST 4/10: Upload Files Within Quota Limit"
 
 echo "Creating test file (${TEST_FILE_SIZE_MB}MB)..."
 TEST_FILE_1="$TEST_FILES_DIR/test_file_1.dat"
-# Use /dev/zero for speed (much faster than /dev/urandom for testing)
-dd if=/dev/zero of="$TEST_FILE_1" bs=1M count=$TEST_FILE_SIZE_MB 2>/dev/null
+# Use /dev/urandom for unique data (prevents Btrfs deduplication)
+# Using larger block size (10M) for better performance
+dd if=/dev/urandom of="$TEST_FILE_1" bs=10M count=$((TEST_FILE_SIZE_MB / 10)) status=progress 2>&1 | grep -v records || true
 
 if [ -f "$TEST_FILE_1" ]; then
     actual_size=$(du -m "$TEST_FILE_1" | cut -f1)
@@ -279,8 +280,8 @@ print_header "TEST 5/10: Upload Files to Approach Quota Limit (90%+ Warning)"
 
 echo "Creating second test file (${TEST_FILE_SIZE_MB}MB)..."
 TEST_FILE_2="$TEST_FILES_DIR/test_file_2.dat"
-# Use /dev/zero for speed (much faster than /dev/urandom for testing)
-dd if=/dev/zero of="$TEST_FILE_2" bs=1M count=$TEST_FILE_SIZE_MB 2>/dev/null
+# Use /dev/urandom for unique data (prevents Btrfs deduplication)
+dd if=/dev/urandom of="$TEST_FILE_2" bs=10M count=$((TEST_FILE_SIZE_MB / 10)) status=progress 2>&1 | grep -v records || true
 echo "✓ Second test file created"
 
 echo "Copying second file..."
@@ -335,8 +336,8 @@ print_header "TEST 6/10: Test Quota Enforcement (Snapshot Blocked)"
 
 echo "Creating third test file (${TEST_FILE_SIZE_MB}MB)..."
 TEST_FILE_3="$TEST_FILES_DIR/test_file_3.dat"
-# Use /dev/zero for speed (much faster than /dev/urandom for testing)
-dd if=/dev/zero of="$TEST_FILE_3" bs=1M count=$TEST_FILE_SIZE_MB 2>/dev/null
+# Use /dev/urandom for unique data (prevents Btrfs deduplication)
+dd if=/dev/urandom of="$TEST_FILE_3" bs=10M count=$((TEST_FILE_SIZE_MB / 10)) status=progress 2>&1 | grep -v records || true
 
 echo "Copying third file (will bring usage to ~87%)..."
 cp "$TEST_FILE_3" "/home/$TEST_USER/uploads/"
@@ -353,8 +354,8 @@ print_result "INFO" "Quota usage after third file: $current_usage"
 # Now create a fourth file to push over quota limit
 echo "Creating fourth test file (${TEST_FILE_SIZE_MB}MB) to exceed quota..."
 TEST_FILE_4="$TEST_FILES_DIR/test_file_4.dat"
-# Use /dev/zero for speed (much faster than /dev/urandom for testing)
-dd if=/dev/zero of="$TEST_FILE_4" bs=1M count=$TEST_FILE_SIZE_MB 2>/dev/null
+# Use /dev/urandom for unique data (prevents Btrfs deduplication)
+dd if=/dev/urandom of="$TEST_FILE_4" bs=10M count=$((TEST_FILE_SIZE_MB / 10)) status=progress 2>&1 | grep -v records || true
 
 echo "Attempting to copy fourth file (should be blocked by Btrfs quota)..."
 if cp "$TEST_FILE_4" "/home/$TEST_USER/uploads/" 2>/tmp/cp_error.txt; then
@@ -433,8 +434,8 @@ print_header "TEST 8/10: Verify Snapshot After Quota Increase"
 
 echo "Creating fifth test file (100MB)..."
 TEST_FILE_5="$TEST_FILES_DIR/test_file_5.dat"
-# Use /dev/zero for speed (much faster than /dev/urandom for testing)
-dd if=/dev/zero of="$TEST_FILE_5" bs=1M count=100 2>/dev/null
+# Use /dev/urandom for unique data (prevents Btrfs deduplication)
+dd if=/dev/urandom of="$TEST_FILE_5" bs=10M count=10 status=progress 2>&1 | grep -v records || true
 
 echo "Copying fifth file..."
 cp "$TEST_FILE_5" "/home/$TEST_USER/uploads/"
