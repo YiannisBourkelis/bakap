@@ -270,6 +270,10 @@ else
     # Don't exit - continue with tests
 fi
 
+# Rescan quota to ensure accurate accounting (qgroups can be inconsistent without rescan)
+echo "Updating quota accounting..."
+btrfs quota rescan -w /home 2>/dev/null || true
+
 # Check quota usage
 "$SCRIPT_DIR/manage_users.sh" show-quota "$TEST_USER" > /tmp/quota_output.txt 2>&1
 current_usage=$(grep "Current usage:" /tmp/quota_output.txt | grep -oP '\d+\.\d+GB' | head -1)
@@ -311,6 +315,10 @@ else
     print_result "FAIL" "No second snapshot created"
 fi
 
+# Rescan quota to ensure accurate accounting
+echo "Updating quota accounting..."
+btrfs quota rescan -w /home 2>/dev/null || true
+
 # Check quota usage
 "$SCRIPT_DIR/manage_users.sh" show-quota "$TEST_USER" > /tmp/quota_output.txt 2>&1
 current_usage=$(grep "Current usage:" /tmp/quota_output.txt | grep -oP '\d+\.\d+GB' | head -1)
@@ -345,6 +353,10 @@ chown "$TEST_USER:backupusers" "/home/$TEST_USER/uploads/test_file_3.dat"
 
 echo "Waiting ${MONITOR_WAIT_TIME}s for monitor to create snapshot..."
 sleep "$MONITOR_WAIT_TIME"
+
+# Rescan quota to ensure accurate accounting
+echo "Updating quota accounting..."
+btrfs quota rescan -w /home 2>/dev/null || true
 
 # Check quota - should be around 87% now (0.87GB / 1GB)
 "$SCRIPT_DIR/manage_users.sh" show-quota "$TEST_USER" > /tmp/quota_output.txt 2>&1
