@@ -18,12 +18,30 @@ fi
 
 set -e
 
-if [ $# -ne 1 ]; then
-    echo "Usage: $0 <username>"
+# Parse arguments
+FORCE_DELETE=false
+USERNAME=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --force|-f)
+            FORCE_DELETE=true
+            shift
+            ;;
+        *)
+            USERNAME="$1"
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$USERNAME" ]; then
+    echo "Usage: $0 [--force] <username>"
+    echo ""
+    echo "Options:"
+    echo "  --force, -f    Skip confirmation prompt (use with caution!)"
     exit 1
 fi
-
-USERNAME=$1
 
 # Check if user exists
 if ! id "$USERNAME" &>/dev/null; then
@@ -31,16 +49,18 @@ if ! id "$USERNAME" &>/dev/null; then
     exit 1
 fi
 
-# Safety confirmation - require typing username
-echo ""
-echo "WARNING: This will permanently delete user '$USERNAME' and ALL backup data!"
-echo "This action CANNOT be undone."
-echo ""
-read -p "Type the username '$USERNAME' again to confirm deletion: " confirmation
+# Safety confirmation - require typing username (unless --force)
+if [ "$FORCE_DELETE" = false ]; then
+    echo ""
+    echo "WARNING: This will permanently delete user '$USERNAME' and ALL backup data!"
+    echo "This action CANNOT be undone."
+    echo ""
+    read -p "Type the username '$USERNAME' again to confirm deletion: " confirmation
 
-if [ "$confirmation" != "$USERNAME" ]; then
-    echo "Username mismatch. Aborting deletion."
-    exit 1
+    if [ "$confirmation" != "$USERNAME" ]; then
+        echo "Username mismatch. Aborting deletion."
+        exit 1
+    fi
 fi
 
 echo ""

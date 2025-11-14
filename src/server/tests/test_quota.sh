@@ -14,6 +14,7 @@ TEST_USER="terminas_test_quota"
 TEST_QUOTA_GB=1  # 1GB quota for testing
 TEST_FILE_SIZE_MB=300  # Create 300MB files
 MONITOR_WAIT_TIME=70  # Wait time for monitor to create snapshot (debounce + buffer)
+TEST_FILES_DIR="/var/tmp/terminas_test"  # Use /var/tmp instead of /tmp (more space)
 
 # Color codes for output
 RED='\033[0;31m'
@@ -83,15 +84,17 @@ cleanup_test_user() {
     print_header "Cleaning up test user: $TEST_USER"
     
     if id "$TEST_USER" &>/dev/null; then
-        echo "Deleting test user..."
-        # Use manage_users.sh delete which has its own confirmation
-        echo "$TEST_USER" | "$SCRIPT_DIR/manage_users.sh" delete "$TEST_USER" 2>/dev/null || true
+        echo "Deleting test user (non-interactive)..."
+        
+        # Use delete_user.sh with --force flag to skip confirmation
+        "$SCRIPT_DIR/delete_user.sh" --force "$TEST_USER" 2>/dev/null || true
+        
         print_result "INFO" "Test user deleted"
     else
         print_result "INFO" "Test user does not exist, nothing to cleanup"
     fi
     
-    # Remove any leftover runtime files
+    # Remove any leftover runtime files (delete_user.sh also does this, but just to be sure)
     rm -f "/var/run/terminas/activity_$TEST_USER" 2>/dev/null || true
     rm -f "/var/run/terminas/snapshot_$TEST_USER" 2>/dev/null || true
     rm -f "/var/run/terminas/processing_$TEST_USER" 2>/dev/null || true
@@ -116,7 +119,11 @@ echo "  Test user: $TEST_USER"
 echo "  Quota limit: ${TEST_QUOTA_GB}GB"
 echo "  Test file size: ${TEST_FILE_SIZE_MB}MB each"
 echo "  Monitor wait time: ${MONITOR_WAIT_TIME}s"
+echo "  Test files directory: $TEST_FILES_DIR"
 echo ""
+
+# Setup test files directory
+mkdir -p "$TEST_FILES_DIR"
 
 # Cleanup any existing test user first
 cleanup_test_user
@@ -220,7 +227,7 @@ fi
 print_header "TEST 4/10: Upload Files Within Quota Limit"
 
 echo "Creating test file (${TEST_FILE_SIZE_MB}MB)..."
-TEST_FILE_1="/tmp/test_file_1.dat"
+TEST_FILE_1="$TEST_FILES_DIR/test_file_1.dat"
 # Use /dev/zero for speed (much faster than /dev/urandom for testing)
 dd if=/dev/zero of="$TEST_FILE_1" bs=1M count=$TEST_FILE_SIZE_MB 2>/dev/null
 
@@ -271,13 +278,21 @@ print_result "INFO" "Quota usage after first file: $current_usage"
 print_header "TEST 5/10: Upload Files to Approach Quota Limit (90%+ Warning)"
 
 echo "Creating second test file (${TEST_FILE_SIZE_MB}MB)..."
-TEST_FILE_2="/tmp/test_file_2.dat"
+TEST_FILE_2="$TEST_FILES_DIR/test_file_2.dat"
 # Use /dev/zero for speed (much faster than /dev/urandom for testing)
 dd if=/dev/zero of="$TEST_FILE_2" bs=1M count=$TEST_FILE_SIZE_MB 2>/dev/null
+echo "✓ Second test file created"
 
 echo "Copying second file..."
-cp "$TEST_FILE_2" "/home/$TEST_USER/uploads/"
-chown "$TEST_USER:backupusers" "/home/$TEST_USER/uploads/test_file_2.dat"
+if cp "$TEST_FILE_2" "/home/$TEST_USER/uploads/" 2>/tmp/cp2_error.txt; then
+    echo "✓ Second file copied successfully"
+    chown "$TEST_USER:backupusers" "/home/$TEST_USER/uploads/test_file_2.dat"
+else
+    echo "✗ Second file copy failed:"
+    cat /tmp/cp2_error.txt
+    print_result "INFO" "Copy failed - checking quota status"
+    "$SCRIPT_DIR/manage_users.sh" show-quota "$TEST_USER"
+fi
 
 echo "Waiting ${MONITOR_WAIT_TIME}s for monitor to create snapshot..."
 
@@ -319,7 +334,7 @@ fi
 print_header "TEST 6/10: Test Quota Enforcement (Snapshot Blocked)"
 
 echo "Creating third test file (${TEST_FILE_SIZE_MB}MB)..."
-TEST_FILE_3="/tmp/test_file_3.dat"
+TEST_FILE_3="$TEST_FILES_DIR/test_file_3.dat"
 # Use /dev/zero for speed (much faster than /dev/urandom for testing)
 dd if=/dev/zero of="$TEST_FILE_3" bs=1M count=$TEST_FILE_SIZE_MB 2>/dev/null
 
@@ -337,7 +352,7 @@ print_result "INFO" "Quota usage after third file: $current_usage"
 
 # Now create a fourth file to push over quota limit
 echo "Creating fourth test file (${TEST_FILE_SIZE_MB}MB) to exceed quota..."
-TEST_FILE_4="/tmp/test_file_4.dat"
+TEST_FILE_4="$TEST_FILES_DIR/test_file_4.dat"
 # Use /dev/zero for speed (much faster than /dev/urandom for testing)
 dd if=/dev/zero of="$TEST_FILE_4" bs=1M count=$TEST_FILE_SIZE_MB 2>/dev/null
 
@@ -417,7 +432,7 @@ fi
 print_header "TEST 8/10: Verify Snapshot After Quota Increase"
 
 echo "Creating fifth test file (100MB)..."
-TEST_FILE_5="/tmp/test_file_5.dat"
+TEST_FILE_5="$TEST_FILES_DIR/test_file_5.dat"
 # Use /dev/zero for speed (much faster than /dev/urandom for testing)
 dd if=/dev/zero of="$TEST_FILE_5" bs=1M count=100 2>/dev/null
 
@@ -498,9 +513,10 @@ echo "  To cleanup: sudo $0 --cleanup-only"
 echo ""
 
 # Cleanup temp files
-rm -f /tmp/test_file_*.dat /tmp/create_user_output.txt /tmp/quota_output.txt
+rm -rf "$TEST_FILES_DIR"
+rm -f /tmp/create_user_output.txt /tmp/quota_output.txt
 rm -f /tmp/set_quota_output.txt /tmp/remove_quota_output.txt /tmp/info_output.txt
-rm -f /tmp/recent_log.txt /tmp/recent_user_log.txt
+rm -f /tmp/recent_log.txt /tmp/recent_user_log.txt /tmp/cp2_error.txt /tmp/cp_error.txt
 
 echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}  All Tests Completed!${NC}"
