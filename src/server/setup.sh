@@ -500,10 +500,13 @@ echo "\$(date '+%F %T') Commit: $TERMINAS_COMMIT" >> "\$LOG"
 echo "\$(date '+%F %T') ========================================" >> "\$LOG"
 
 # Watch /home recursively and react to close_write events
+# IMPORTANT: Exclude /home/<user>/versions/ directories to prevent holding file descriptors
+# that would block Btrfs extent cleaner from reclaiming space after snapshot deletion
+# Pattern: ^/home/[^/]+/versions(/|$) matches /home/<user>/versions/ but NOT /home/<user>/uploads/versions/
 # close_write: fired when a file is written and closed
 # This captures both direct uploads and atomic uploads (temp files)
 # Strategy: Debounce with inactivity window to coalesce multiple uploads
-inotifywait -m -r /home -e close_write --format '%w%f %e' |
+inotifywait -m -r /home --exclude '^/home/[^/]+/versions(/|$)' -e close_write --format '%w%f %e' |
 while read path event; do
     # Log ALL events for debugging (will be noisy but helpful)
     echo "\$(date '+%F %T') Raw event: path=\$path, event=\$event" >> "\$LOG"

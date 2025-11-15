@@ -20,6 +20,15 @@ set -e
 
 SCRIPT_NAME=$(basename "$0")
 
+# Source delete_user.sh to reuse the reclaim_btrfs_space function
+# This avoids code duplication across multiple scripts (used in cleanup_user, rebuild_user)
+DELETE_USER_SCRIPT="$SCRIPT_DIR/delete_user.sh"
+if [ -f "$DELETE_USER_SCRIPT" ]; then
+    # Source only the reclaim_btrfs_space function definition, not the full script
+    # This extracts the function from delete_user.sh without executing the main script logic
+    eval "$(sed -n '/^reclaim_btrfs_space()/,/^}/p' "$DELETE_USER_SCRIPT")"
+fi
+
 usage() {
     cat <<EOF
 termiNAS User Management Tool v$VERSION
@@ -2181,6 +2190,11 @@ cleanup_user() {
         fi
     done <<< "$snapshots"
     
+    # Reclaim Btrfs space from deleted subvolumes (reuses function from delete_user.sh)
+    if [ "$removed" -gt 0 ]; then
+        reclaim_btrfs_space "$removed"
+    fi
+    
     # Calculate space after cleanup
     local size_after=$(get_actual_size "$versions_dir")
     local space_freed=$(echo "$size_before - $size_after" | bc)
@@ -2383,6 +2397,11 @@ rebuild_user() {
             done <<< "$snapshots"
             
             echo "Deleted $deleted snapshot(s)"
+            
+            # Reclaim Btrfs space from deleted subvolumes (reuses function from delete_user.sh)
+            if [ "$deleted" -gt 0 ]; then
+                reclaim_btrfs_space "$deleted"
+            fi
         else
             echo "No existing snapshots to delete"
         fi
