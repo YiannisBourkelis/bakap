@@ -1352,7 +1352,7 @@ To modify or extend the scripts:
 - `src/server/manage_users.sh` - User and snapshot management
 - `src/client/windows/upload.ps1` - Windows PowerShell upload client
 - `src/client/linux/upload.sh` - Linux Bash upload client
-- `/var/terminas/scripts/monitor_backups.sh` - Real-time snapshot monitor (created by setup)
+- `/var/terminas/scripts/terminas-monitor.sh` - Real-time snapshot monitor (created by setup)
 - `/var/terminas/scripts/terminas-cleanup.sh` - Retention policy cleanup (created by setup)
 - `/etc/terminas-retention.conf` - Retention configuration (created by setup)
 
@@ -1482,7 +1482,7 @@ sudo ./src/server/setup.sh
 sudo systemctl restart terminas-monitor.service
 
 # Verify new logic is applied
-sudo grep "Excluding in-progress" /var/terminas/scripts/monitor_backups.sh
+sudo grep "Excluding in-progress" /var/terminas/scripts/terminas-monitor.sh
 ```
 
 **Monitor the snapshot process:**

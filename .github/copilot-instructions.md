@@ -53,9 +53,9 @@ terminas/
             └── upload.ps1      # Manual upload with hash checking
 
 Server Runtime Files (created by setup.sh):
-/var/backups/scripts/
-├── monitor_backups.sh          # inotify-based real-time snapshot monitor
-└── cleanup_snapshots.sh        # Retention policy enforcement
+/var/terminas/scripts/
+├── terminas-monitor.sh         # inotify-based real-time snapshot monitor
+└── terminas-cleanup.sh         # Retention policy enforcement
 
 /etc/
 ├── terminas-retention.conf        # Retention policy configuration
